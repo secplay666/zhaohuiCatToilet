@@ -6,6 +6,8 @@
 #include "esp_check.h"
 #include "assert.h"
 
+#include "hx711_driver.h"
+
 #define ADDO_GPIO CONFIG_HX711_DT   // GPIO number for ADDO
 #define ADSK_GPIO CONFIG_HX711_SCK  // GPIO number for ADSK
 
@@ -89,7 +91,14 @@ long HX711_read(int next_sense){
     for (i = 0; i < next_sense; i++) {
         gpio_set_level(ADSK_GPIO, 1);
         gpio_set_level(ADSK_GPIO, 0);
+        //DO should be 1 at this time
+        //a constant 0 signal on DO may indicate no connection
+        if (gpio_get_level(ADDO_GPIO) == 0) 
+            count = HX711_READ_ERROR;
     }
+
+    if (count == HX711_READ_ERROR)
+        return count;
 
     //handle 2's compliment for 24 bit input
     if (count > 0x800000)
@@ -127,6 +136,13 @@ void HX711_task(void *pvParameters){
         HX711_data = HX711_read(CHANNEL_A_x128);
         //enable interrupt on DO
         gpio_intr_enable(ADDO_GPIO);
+        //handling read error
+        if (HX711_data == HX711_READ_ERROR) {
+            ESP_LOGE(TAG, "Error Reading HX711 data");
+            //wait 5s for retry
+            vTaskDelay(5000 / portTICK_PERIOD_MS);
+            continue;
+        }
         printf("%s: %ld\n", TAG, HX711_data);
         //delay 50 ms to prevent spamming output
         vTaskDelay(50 / portTICK_PERIOD_MS);

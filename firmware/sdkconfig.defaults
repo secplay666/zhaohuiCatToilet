@@ -1,0 +1,2 @@
+# for enabling Task notification other than UART streams
+CONFIG_FREERTOS_TASK_NOTIFICATION_ARRAY_ENTRIES=2
