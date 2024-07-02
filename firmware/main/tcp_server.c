@@ -12,7 +12,7 @@
 #include <sys/param.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "freertos/message_buffer.h"
+//#include "freertos/message_buffer.h"
 #include "esp_system.h"
 #include "esp_wifi.h"
 #include "esp_event.h"
@@ -20,6 +20,9 @@
 #include "esp_check.h"
 #include "nvs_flash.h"
 #include "esp_netif.h"
+#include "errno.h"
+#include "string.h"
+#include "sys/unistd.h"
 
 #include "lwip/err.h"
 #include "lwip/sockets.h"
@@ -33,12 +36,17 @@
 #define KEEPALIVE_IDLE              CONFIG_KEEPALIVE_IDLE
 #define KEEPALIVE_INTERVAL          CONFIG_KEEPALIVE_INTERVAL
 #define KEEPALIVE_COUNT             CONFIG_KEEPALIVE_COUNT
+#define MAX_CONN                    CONFIG_MAXIMUM_CONNECTIONS
 
 
 static const char *TAG = "server";
 #define BUFFSIZE 128
 #define STREAMBUFFSIZE 256
 
+static const UBaseType_t conn_notify_index = 1;
+static TaskHandle_t server_task_handle = NULL;
+
+/*
 static void do_retransmit(const int sock)
 {
     int len;
@@ -98,18 +106,94 @@ static void do_retransmit(const int sock)
 
             // send() can return less bytes than supplied length.
             // Walk-around for robust implementation.
-			/*
-            int to_write = len;
-            while (to_write > 0) {
-                int written = send(sock, rx_buffer + (len - to_write), to_write, 0);
-                if (written < 0) {
-                    ESP_LOGE(TAG, "Error occurred during sending: errno %d", errno);
-                }
-                to_write -= written;
-            }
-			*/
+			
+            //int to_write = len;
+            //while (to_write > 0) {
+            //    int written = send(sock, rx_buffer + (len - to_write), to_write, 0);
+            //    if (written < 0) {
+            //        ESP_LOGE(TAG, "Error occurred during sending: errno %d", errno);
+            //    }
+            //    to_write -= written;
+            //}
+			
         }
     } while (len > 0);
+}
+*/
+
+void cleanup_socket(command_parameter * para){
+    //shutdown(sock, 0);
+    if (para->stream_in == para->stream_out) {
+        fclose(para->stream_in);
+        fclose(para->stream_out);
+    } else
+        fclose(para->stream_in);
+    free(para);
+    //connection ends, increasing semaphore
+    xTaskNotifyGiveIndexed(server_task_handle, conn_notify_index);
+}
+
+esp_err_t start_console(int sock){
+    esp_err_t err = ESP_OK;
+
+    //int sock_copy = dup(sock);
+    //if (sock_copy < 0){
+    //    ESP_LOGE(TAG, "dup: %s", strerror(errno));
+    //    err = ESP_FAIL;
+    //    close(sock);
+    //    goto exit;
+    //}
+
+    //open stream for read and write
+    FILE* stream_in = fdopen(sock, "r+");
+    if (NULL == stream_in){
+        ESP_LOGE(TAG, "fdopen: %s", strerror(errno));
+        err = ESP_FAIL;
+        goto exit_cleanup1;
+    }
+
+    FILE* stream_out = stream_in;
+    //FILE* stream_out = fdopen(sock_copy, "w");
+    //if (NULL == stream_out){
+    //    ESP_LOGE(TAG, "fdopen: %s", strerror(errno));
+    //    fclose(stream_in);
+    //    err = ESP_FAIL;
+    //    goto exit_cleanup1;
+    //}
+
+    command_parameter * para = malloc(sizeof(command_parameter));
+    if (NULL == para){
+        ESP_LOGE(TAG, "malloc: %s", strerror(errno));
+        err = ESP_ERR_NO_MEM;
+        goto exit_cleanup2;
+    }
+    para->id = "webconsole";
+    para->stream_in = stream_in;
+    para->stream_out = stream_out;
+    para->at_exit = cleanup_socket;
+
+    //create command task
+    BaseType_t rtos_err = xTaskCreate(command_task, "webconsole", 4096, (void*)para, 5, NULL);
+    if (pdPASS != rtos_err){
+        ESP_LOGE(TAG, "xTaskCreate failed: Cannot allocate required memory");
+        err = ESP_ERR_NO_MEM;
+        goto exit_cleanup3;
+    }
+    goto exit;
+
+exit_cleanup3:
+    free(para);
+exit_cleanup2:
+    fclose(stream_in);
+    //fclose(stream_out);
+    goto exit;
+exit_cleanup1:
+    //close(sock_copy);
+    close(sock);
+exit:
+    //creation of task failed, increasing semaphore
+    xTaskNotifyGiveIndexed(server_task_handle, conn_notify_index);
+    return err;
 }
 
 void tcp_server_task(void *pvParameters)
@@ -122,6 +206,7 @@ void tcp_server_task(void *pvParameters)
     int keepInterval = KEEPALIVE_INTERVAL;
     int keepCount = KEEPALIVE_COUNT;
     struct sockaddr_storage dest_addr;
+    server_task_handle = xTaskGetCurrentTaskHandle();
 
     if (addr_family == AF_INET) {
         struct sockaddr_in *dest_addr_ip4 = (struct sockaddr_in *)&dest_addr;
@@ -170,12 +255,21 @@ void tcp_server_task(void *pvParameters)
         goto CLEAN_UP;
     }
 
-    while (1) {
+    //setup task notify value as counting semaphore
+    //to limit connection number to MAX_CONN
+    xTaskNotifyIndexed(server_task_handle, conn_notify_index, MAX_CONN, eSetValueWithOverwrite);
 
+    while (1) {
         ESP_LOGI(TAG, "Socket listening");
 
         struct sockaddr_storage source_addr; // Large enough for both IPv4 or IPv6
         socklen_t addr_len = sizeof(source_addr);
+
+        //If we have maximal connections, wait for some other connection to
+        //close before accepting new connection.
+        //Decrease available connection number by 1 .
+        ulTaskNotifyTakeIndexed(conn_notify_index, pdFALSE, portMAX_DELAY);
+
         int sock = accept(listen_sock, (struct sockaddr *)&source_addr, &addr_len);
         if (sock < 0) {
             ESP_LOGE(TAG, "Unable to accept connection: errno %d", errno);
@@ -198,10 +292,8 @@ void tcp_server_task(void *pvParameters)
 #endif
         ESP_LOGI(TAG, "Socket accepted ip address: %s", addr_str);
 
-        do_retransmit(sock);
-
-        shutdown(sock, 0);
-        close(sock);
+        //do_retransmit(sock);
+        start_console(sock);
     }
 
 CLEAN_UP:

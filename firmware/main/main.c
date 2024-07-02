@@ -31,18 +31,16 @@ void app_main(void)
     ESP_ERROR_CHECK(esp_netif_init());
 
     // create message buffer
-	messageBuffer = xMessageBufferCreate(MESSAGEBUFFSIZE);
-	if (NULL == messageBuffer){
-		ESP_LOGE(TAG, "Failed to create message buffer");
-		ESP_ERROR_CHECK(ESP_ERR_NO_MEM);
-	}
+	//messageBuffer = xMessageBufferCreate(COMMANDBUFFSIZE);
+	//if (NULL == messageBuffer){
+	//	ESP_LOGE(TAG, "Failed to create message buffer");
+	//	ESP_ERROR_CHECK(ESP_ERR_NO_MEM);
+	//}
 
     gpio_dump_io_configuration(stdout, SOC_GPIO_VALID_GPIO_MASK);
 
     // start wifi connection
     ESP_ERROR_CHECK(wifi_connect());
-
-    xTaskCreate(command_task, "command", 4096, NULL, 5, NULL);
 
 #ifdef CONFIG_IPV4
     xTaskCreate(tcp_server_task, "tcp_server", 4096, (void*)AF_INET, 5, NULL);
@@ -50,6 +48,9 @@ void app_main(void)
 #ifdef CONFIG_IPV6
     xTaskCreate(tcp_server_task, "tcp_server", 4096, (void*)AF_INET6, 5, NULL);
 #endif
+
+    // start UART console
+    xTaskCreate(command_task, "command", 4096, NULL, 5, NULL);
 
     ESP_ERROR_CHECK(motor_auto_process());
 }
