@@ -140,7 +140,7 @@ void HX711_task(void *pvParameters){
         if (HX711_data == HX711_READ_ERROR) {
             ESP_LOGE(TAG, "Error Reading HX711 data");
             //wait 5s for retry
-            vTaskDelay(5000 / portTICK_PERIOD_MS);
+            vTaskDelay(10000 / portTICK_PERIOD_MS);
             continue;
         }
         printf("%s: %ld\n", TAG, HX711_data);

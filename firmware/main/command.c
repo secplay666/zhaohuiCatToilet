@@ -1,5 +1,6 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "driver/uart.h"
 #include "driver/uart_vfs.h"
 #include "esp_log.h"
 #include "stdio.h"
@@ -12,12 +13,14 @@
 #include "command.h"
 
 #define STR(x) #x
-#define VERSION STR(CONFIG_PROJECT_VERSION_MAJOR.CONFIG_PROJECT_VERSION_MINOR.CONFIG_PROJECT_VERSION_PATCH)
+#define COMPOSE_VERSION(major, minor, patch) STR(major.minor.patch)
+#define VERSION COMPOSE_VERSION(CONFIG_PROJECT_VERSION_MAJOR, CONFIG_PROJECT_VERSION_MINOR, CONFIG_PROJECT_VERSION_PATCH)
 #define PROJECT_NAME CONFIG_PROJECT_NAME
 #define COMPILE_DATE __DATE__
 
 //MessageBufferHandle_t messageBuffer;
 static const char *TAG = "command";
+static const int uart_buffer_size = 1024;
 const char *greetings = "This is " PROJECT_NAME " commandline interface, version " VERSION ", build date " COMPILE_DATE ".\n"
 "\n"
 "Enter ? or h for help:\n";
@@ -71,8 +74,14 @@ void command_task(void *pvParameters)
         stderr = para->stream_out;
     }
     else {
+        //install uart driver
+        if (!uart_is_driver_installed(CONFIG_ESP_CONSOLE_UART_NUM))
+            ESP_ERROR_CHECK(uart_driver_install(CONFIG_ESP_CONSOLE_UART_NUM, uart_buffer_size, uart_buffer_size, 0, NULL, 0));
         //use blocking driver mode for uart console
+        ESP_LOGI(TAG, "before setting up uart driver %d", CONFIG_ESP_CONSOLE_UART_NUM);
         uart_vfs_dev_use_driver(CONFIG_ESP_CONSOLE_UART_NUM);
+        //vTaskDelay(10000 / portTICK_PERIOD_MS);
+        ESP_LOGI(TAG, "after setting up uart driver");
     }
 
 start:
@@ -82,7 +91,8 @@ start:
     //command loop
 	while (!quit) {
         // print pormpt string
-        puts(prompt);
+        fputs(prompt, stdout);
+        fflush(stdout);
         
 		//cmdlen = xMessageBufferReceive(messageBuffer, cmdbuf, COMMANDBUFFSIZE-1, portMAX_DELAY);
         p = fgets(cmdbuf, COMMANDBUFFSIZE, stdin);
@@ -102,6 +112,7 @@ start:
             case '\n':
                 break;
 			case 'h':
+			case '?':
                 print_help();
                 break;
 			case 'w':

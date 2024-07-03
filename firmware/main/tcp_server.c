@@ -179,7 +179,7 @@ esp_err_t start_console(int sock){
         err = ESP_ERR_NO_MEM;
         goto exit_cleanup3;
     }
-    goto exit;
+    return err;
 
 exit_cleanup3:
     free(para);
@@ -268,7 +268,8 @@ void tcp_server_task(void *pvParameters)
         //If we have maximal connections, wait for some other connection to
         //close before accepting new connection.
         //Decrease available connection number by 1 .
-        ulTaskNotifyTakeIndexed(conn_notify_index, pdFALSE, portMAX_DELAY);
+        uint32_t notify_value = ulTaskNotifyTakeIndexed(conn_notify_index, pdFALSE, 5000 / portTICK_PERIOD_MS);
+        ESP_LOGI(TAG, "connection semaphore value: %ld", notify_value);
 
         int sock = accept(listen_sock, (struct sockaddr *)&source_addr, &addr_len);
         if (sock < 0) {
