@@ -12,36 +12,41 @@
 #include <sys/param.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "freertos/message_buffer.h"
+//#include "freertos/message_buffer.h"
 #include "esp_system.h"
 #include "esp_wifi.h"
 #include "esp_event.h"
 #include "esp_log.h"
+#include "esp_check.h"
 #include "nvs_flash.h"
 #include "esp_netif.h"
-#include "protocol_examples_common.h"
+#include "errno.h"
+#include "string.h"
+#include "sys/unistd.h"
 
 #include "lwip/err.h"
 #include "lwip/sockets.h"
 #include "lwip/sys.h"
 #include <lwip/netdb.h>
 
-#include "TM1638_driver.h"
-#include "drv8871_driver.h"
-#include "driver/gpio.h"
-#include "main.h"
-#include "motor.h"
+#include "command.h"
+#include "tcp_server.h"
 
 #define PORT                        CONFIG_PORT
 #define KEEPALIVE_IDLE              CONFIG_KEEPALIVE_IDLE
 #define KEEPALIVE_INTERVAL          CONFIG_KEEPALIVE_INTERVAL
 #define KEEPALIVE_COUNT             CONFIG_KEEPALIVE_COUNT
+#define MAX_CONN                    CONFIG_MAXIMUM_CONNECTIONS
 
 
 static const char *TAG = "server";
 #define BUFFSIZE 128
 #define STREAMBUFFSIZE 256
 
+static const UBaseType_t conn_notify_index = 1;
+static TaskHandle_t server_task_handle = NULL;
+
+/*
 static void do_retransmit(const int sock)
 {
     int len;
@@ -81,7 +86,8 @@ static void do_retransmit(const int sock)
 							break;
 						case '\n':
 							// send data to command processing task
-							xMessageBufferSend(messageBuffer, cmdbuf, cmdlen, portMAX_DELAY);
+                            if (messageBuffer)
+                                xMessageBufferSend(messageBuffer, cmdbuf, cmdlen, portMAX_DELAY);
 							overflow = false;
 							cmdlen = 0;
 							break;
@@ -100,21 +106,97 @@ static void do_retransmit(const int sock)
 
             // send() can return less bytes than supplied length.
             // Walk-around for robust implementation.
-			/*
-            int to_write = len;
-            while (to_write > 0) {
-                int written = send(sock, rx_buffer + (len - to_write), to_write, 0);
-                if (written < 0) {
-                    ESP_LOGE(TAG, "Error occurred during sending: errno %d", errno);
-                }
-                to_write -= written;
-            }
-			*/
+			
+            //int to_write = len;
+            //while (to_write > 0) {
+            //    int written = send(sock, rx_buffer + (len - to_write), to_write, 0);
+            //    if (written < 0) {
+            //        ESP_LOGE(TAG, "Error occurred during sending: errno %d", errno);
+            //    }
+            //    to_write -= written;
+            //}
+			
         }
     } while (len > 0);
 }
+*/
 
-static void tcp_server_task(void *pvParameters)
+void cleanup_socket(command_parameter * para){
+    //shutdown(sock, 0);
+    if (para->stream_in == para->stream_out) {
+        fclose(para->stream_in);
+        fclose(para->stream_out);
+    } else
+        fclose(para->stream_in);
+    free(para);
+    //connection ends, increasing semaphore
+    xTaskNotifyGiveIndexed(server_task_handle, conn_notify_index);
+}
+
+esp_err_t start_console(int sock){
+    esp_err_t err = ESP_OK;
+
+    //int sock_copy = dup(sock);
+    //if (sock_copy < 0){
+    //    ESP_LOGE(TAG, "dup: %s", strerror(errno));
+    //    err = ESP_FAIL;
+    //    close(sock);
+    //    goto exit;
+    //}
+
+    //open stream for read and write
+    FILE* stream_in = fdopen(sock, "r+");
+    if (NULL == stream_in){
+        ESP_LOGE(TAG, "fdopen: %s", strerror(errno));
+        err = ESP_FAIL;
+        goto exit_cleanup1;
+    }
+
+    FILE* stream_out = stream_in;
+    //FILE* stream_out = fdopen(sock_copy, "w");
+    //if (NULL == stream_out){
+    //    ESP_LOGE(TAG, "fdopen: %s", strerror(errno));
+    //    fclose(stream_in);
+    //    err = ESP_FAIL;
+    //    goto exit_cleanup1;
+    //}
+
+    command_parameter * para = malloc(sizeof(command_parameter));
+    if (NULL == para){
+        ESP_LOGE(TAG, "malloc: %s", strerror(errno));
+        err = ESP_ERR_NO_MEM;
+        goto exit_cleanup2;
+    }
+    para->id = "webconsole";
+    para->stream_in = stream_in;
+    para->stream_out = stream_out;
+    para->at_exit = cleanup_socket;
+
+    //create command task
+    BaseType_t rtos_err = xTaskCreate(command_task, "webconsole", 4096, (void*)para, 5, NULL);
+    if (pdPASS != rtos_err){
+        ESP_LOGE(TAG, "xTaskCreate failed: Cannot allocate required memory");
+        err = ESP_ERR_NO_MEM;
+        goto exit_cleanup3;
+    }
+    return err;
+
+exit_cleanup3:
+    free(para);
+exit_cleanup2:
+    fclose(stream_in);
+    //fclose(stream_out);
+    goto exit;
+exit_cleanup1:
+    //close(sock_copy);
+    close(sock);
+exit:
+    //creation of task failed, increasing semaphore
+    xTaskNotifyGiveIndexed(server_task_handle, conn_notify_index);
+    return err;
+}
+
+void tcp_server_task(void *pvParameters)
 {
     char addr_str[128];
     int addr_family = (int)pvParameters;
@@ -124,6 +206,7 @@ static void tcp_server_task(void *pvParameters)
     int keepInterval = KEEPALIVE_INTERVAL;
     int keepCount = KEEPALIVE_COUNT;
     struct sockaddr_storage dest_addr;
+    server_task_handle = xTaskGetCurrentTaskHandle();
 
     if (addr_family == AF_INET) {
         struct sockaddr_in *dest_addr_ip4 = (struct sockaddr_in *)&dest_addr;
@@ -172,12 +255,22 @@ static void tcp_server_task(void *pvParameters)
         goto CLEAN_UP;
     }
 
-    while (1) {
+    //setup task notify value as counting semaphore
+    //to limit connection number to MAX_CONN
+    xTaskNotifyIndexed(server_task_handle, conn_notify_index, MAX_CONN, eSetValueWithOverwrite);
 
+    while (1) {
         ESP_LOGI(TAG, "Socket listening");
 
         struct sockaddr_storage source_addr; // Large enough for both IPv4 or IPv6
         socklen_t addr_len = sizeof(source_addr);
+
+        //If we have maximal connections, wait for some other connection to
+        //close before accepting new connection.
+        //Decrease available connection number by 1 .
+        uint32_t notify_value = ulTaskNotifyTakeIndexed(conn_notify_index, pdFALSE, 5000 / portTICK_PERIOD_MS);
+        ESP_LOGI(TAG, "connection semaphore value: %ld", notify_value);
+
         int sock = accept(listen_sock, (struct sockaddr *)&source_addr, &addr_len);
         if (sock < 0) {
             ESP_LOGE(TAG, "Unable to accept connection: errno %d", errno);
@@ -200,10 +293,8 @@ static void tcp_server_task(void *pvParameters)
 #endif
         ESP_LOGI(TAG, "Socket accepted ip address: %s", addr_str);
 
-        do_retransmit(sock);
-
-        shutdown(sock, 0);
-        close(sock);
+        //do_retransmit(sock);
+        start_console(sock);
     }
 
 CLEAN_UP:
@@ -211,56 +302,3 @@ CLEAN_UP:
     vTaskDelete(NULL);
 }
 
-void app_main(void)
-{
-    ESP_ERROR_CHECK(nvs_flash_init());
-    ESP_ERROR_CHECK(TM1638_init());
-    ESP_ERROR_CHECK(DRV8871_init());
-    ESP_ERROR_CHECK(esp_netif_init());
-    ESP_ERROR_CHECK(esp_event_loop_create_default());
-
-    //gpio_dump_io_configuration(stdout, SOC_GPIO_VALID_GPIO_MASK);
-
-    /* This helper function configures Wi-Fi or Ethernet, as selected in menuconfig.
-     * Read "Establishing Wi-Fi or Ethernet Connection" section in
-     * examples/protocols/README.md for more information about this function.
-     */
-    ESP_ERROR_CHECK(example_connect());
-
-	messageBuffer = xMessageBufferCreate(MESSAGEBUFFSIZE);
-	if (NULL == messageBuffer){
-		ESP_LOGE("main", "Failed to create message buffer");
-		abort();
-	}
-
-    xTaskCreate(command_task, "command", 4096, NULL, 5, NULL);
-    xTaskCreate(motor_task, "motor", 4096, NULL, 5, NULL);
-
-#ifdef CONFIG_IPV4
-    xTaskCreate(tcp_server_task, "tcp_server", 4096, (void*)AF_INET, 5, NULL);
-#endif
-#ifdef CONFIG_IPV6
-    xTaskCreate(tcp_server_task, "tcp_server", 4096, (void*)AF_INET6, 5, NULL);
-#endif
-
-    //for (int i=0; i < 10; i++){
-    //    ESP_ERROR_CHECK(DRV8871_set_speed(0));
-    //    if (i & 1)
-    //        ESP_ERROR_CHECK(DRV8871_forward_brake());
-    //    else
-    //        ESP_ERROR_CHECK(DRV8871_reverse_brake());
-    //    for (int j=0; j <= 100; j=j+5 ){
-    //        ESP_ERROR_CHECK(DRV8871_set_speed(j));
-    //        vTaskDelay(100 / portTICK_PERIOD_MS);
-    //    }
-    //    if (i & 1)
-    //        ESP_ERROR_CHECK(DRV8871_forward());
-    //    else
-    //        ESP_ERROR_CHECK(DRV8871_reverse());
-    //    vTaskDelay(2000 / portTICK_PERIOD_MS);
-    //    ESP_ERROR_CHECK(DRV8871_coast());
-    //    vTaskDelay(1000 / portTICK_PERIOD_MS);
-    //}
-    
-    ESP_ERROR_CHECK(motor_auto_process());
-}

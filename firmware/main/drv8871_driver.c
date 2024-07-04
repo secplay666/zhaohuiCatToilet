@@ -55,7 +55,7 @@ uint32_t DRV8871_get_speed(){
 esp_err_t DRV8871_set_speed(uint32_t speed){
     ESP_RETURN_ON_FALSE(speed <= 100, ESP_ERR_INVALID_ARG, TAG, "invalid argument: %"PRIu32, speed);
     speed_percent = speed;
-    ESP_LOGI(TAG, "Set motor speed: %"PRIu32, speed);
+    ESP_LOGD(TAG, "Set motor speed: %"PRIu32, speed);
     uint32_t comp_value = speed * BDC_MCPWM_DUTY_TICK_MAX /100;
     if (brake_mode)
         comp_value = BDC_MCPWM_DUTY_TICK_MAX - comp_value;

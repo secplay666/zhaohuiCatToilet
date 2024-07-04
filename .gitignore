@@ -1,4 +1,5 @@
 build
-sdkconfig*
+sdkconfig
+sdkconfig.old
 dependencies.lock
 firmware/managed_components/
