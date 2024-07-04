@@ -3,14 +3,12 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "esp_err.h"
 
-#define COMMANDBUFFSIZE 128
-//extern MessageBufferHandle_t messageBuffer;
+#define COMMANDBUFFSIZE 1024
 
-// Fill in a command_parameter* in vTaskCreate for a web console, or NULL for
-// default UART console. The command_parameter must be allocated in heap and be
-// freed by the callback function
-void command_task(void *pvParameters);
+//initialize console, redirect log functions to stderr
+esp_err_t command_init(void);
 
 // Use UART for default command console, and use socket fds for web console
 typedef struct command_parameter command_parameter;
@@ -26,6 +24,11 @@ struct command_parameter{
     // The pointer to command_parameter itself will be passed as argument
     void (*at_exit) (command_parameter * para); 
 };
+
+// Fill in a command_parameter* in vTaskCreate for a web console, or NULL for
+// default UART console. The command_parameter must be allocated in heap and be
+// freed by the callback function
+void command_task(void *pvParameters);
 
 #endif
 

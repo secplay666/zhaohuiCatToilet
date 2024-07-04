@@ -3,6 +3,7 @@
 #include "driver/uart.h"
 #include "driver/uart_vfs.h"
 #include "esp_log.h"
+#include "esp_err.h"
 #include "stdio.h"
 #include "errno.h"
 #include "string.h"
@@ -37,6 +38,20 @@ const char *helpstr = "Commands:\n"
 "q      exit console\n"
 "\n";
 
+//hold old vprintf function for log
+vprintf_like_t old_vprintf = NULL;
+
+//vprintf that outputs to stderr
+static int veprintf(const char* format, va_list vlist){
+    return vfprintf(stderr, format, vlist);
+}
+
+esp_err_t command_init(void){
+    //redirects all logs to stderr
+    old_vprintf = esp_log_set_vprintf(veprintf);
+    return ESP_OK;
+}
+
 uint8_t hex_to_nibble(char c){
 	if (c >= '0' && c <= '9') return c - '0';
 	if (c >= 'A' && c <= 'F') return c - 'A' + 10;
@@ -45,7 +60,7 @@ uint8_t hex_to_nibble(char c){
 }
 
 void print_help(){
-    puts(helpstr);
+    fputs(helpstr, stdout);
 }
 
 void print_status(){
@@ -71,7 +86,6 @@ void command_task(void *pvParameters)
         id = para->id;
         stdin  = para->stream_in;
         stdout = para->stream_out;
-        stderr = para->stream_out;
     }
     else {
         //install uart driver
@@ -86,7 +100,7 @@ void command_task(void *pvParameters)
 
 start:
     //print greetings message
-    puts(greetings);
+    fputs(greetings, stdout);
 
     //command loop
 	while (!quit) {
