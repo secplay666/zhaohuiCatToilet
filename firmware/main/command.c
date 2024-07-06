@@ -54,10 +54,10 @@ esp_err_t command_init(void){
 }
 
 uint8_t hex_to_nibble(char c){
-	if (c >= '0' && c <= '9') return c - '0';
-	if (c >= 'A' && c <= 'F') return c - 'A' + 10;
-	if (c >= 'a' && c <= 'f') return c - 'a' + 10;
-	return 0;
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    return 0;
 }
 
 void print_help(){
@@ -70,14 +70,14 @@ void print_status(){
 void command_task(void *pvParameters)
 {
     command_parameter *para = (command_parameter *) pvParameters;
-	size_t cmdlen = 0;
-	char *cmdbuf = NULL, *p;
+    size_t cmdlen = 0;
+    char *cmdbuf = NULL, *p;
     const char *id = "uart";
     const char *prompt = LOG_COLOR(LOG_COLOR_YELLOW)"esp> "LOG_RESET_COLOR;
     const char *prompt_nocolor = "esp> ";
     bool use_console = true;
     bool quit = false;
-	uint8_t b;
+    uint8_t b;
 
     if (para) {
         //redirect standard io and set id
@@ -122,9 +122,7 @@ void command_task(void *pvParameters)
         }
     }
 
-start:
-    //print greetings message
-    fputs(greetings, stdout);
+    //allocate line buffer for web console
     if (!use_console) {
         cmdbuf = calloc(1, COMMANDBUFFSIZE);
         if (NULL == cmdbuf){
@@ -133,8 +131,12 @@ start:
         }
     }
 
+start:
+    //print greetings message
+    fputs(greetings, stdout);
+
     //command loop
-	while (!quit) {
+    while (!quit) {
         if (use_console) {
             p = linenoise(prompt);
             cmdbuf = p;
@@ -146,7 +148,7 @@ start:
         }
         
         //handle input error
-		if (NULL == p) {
+        if (NULL == p) {
             if (feof(stdin)){
                 //input connection closed
                 break;
@@ -155,85 +157,81 @@ start:
                 ESP_LOGE(TAG, "fgets: %s", strerror(errno));
             }
         }
-		//ESP_LOGI(TAG, "Command (%d bytes): %s", cmdlen, cmdbuf);
-		switch (cmdbuf[0]) {
+        //ESP_LOGI(TAG, "Command (%d bytes): %s", cmdlen, cmdbuf);
+        switch (cmdbuf[0]) {
             case '\0':
             case '\n':
                 break;
-			case 'h':
-			case '?':
+            case 'h':
+            case '?':
                 print_help();
                 break;
-			case 'w':
-				p = cmdbuf + 1;
-				for (int i = 0; i < TM1638_MEMSIZE; ++i){
-					while (' ' == *p) p++;
-					if (p >= cmdbuf + cmdlen){
-						ESP_LOGW(TAG, "Command syntax warning: w: insufficient data length");
-						break;
-					}
-					b = hex_to_nibble(*p++);
+            case 'w':
+                p = cmdbuf + 1;
+                for (int i = 0; i < TM1638_MEMSIZE; ++i){
+                    while (' ' == *p) p++;
+                    if (p >= cmdbuf + cmdlen){
+                        ESP_LOGW(TAG, "Command syntax warning: w: insufficient data length");
+                        break;
+                    }
+                    b = hex_to_nibble(*p++);
 
-					while (' ' == *p) p++;
-					if (p >= cmdbuf + cmdlen){
-						ESP_LOGW(TAG, "Command syntax warning: w: insufficient data length");
-						break;
-					}
-					b = (b << 4) | hex_to_nibble(*p++);
+                    while (' ' == *p) p++;
+                    if (p >= cmdbuf + cmdlen){
+                        ESP_LOGW(TAG, "Command syntax warning: w: insufficient data length");
+                        break;
+                    }
+                    b = (b << 4) | hex_to_nibble(*p++);
 
-					TM1638_write_buffer(i, b);
-				}
-				TM1638_flush();
-				break;
-			case 's':
-				p = cmdbuf + 2;
-				for (int i = 0; i < TM1638_MEMSIZE; i=i+2){
+                    TM1638_write_buffer(i, b);
+                }
+                TM1638_flush();
+                break;
+            case 's':
+                p = cmdbuf + 2;
+                for (int i = 0; i < TM1638_MEMSIZE; i=i+2){
                     if ((p >= cmdbuf + cmdlen) || (*p >= 128)) {
                         TM1638_write_buffer(i, TM1638_char_table[(int)' ']);
                         continue;
                     }
-					TM1638_write_buffer(i, TM1638_char_table[(int)*p]);
+                    TM1638_write_buffer(i, TM1638_char_table[(int)*p]);
                     p++;
                 }
-				TM1638_flush();
-				break;
-			case 'q':
+                TM1638_flush();
+                break;
+            case 'q':
                 quit = true;
                 break;
-			case 'f':
-                motor_next_state = M_Forward_Starting;
+            case 'f':
+                motor_forward();
                 motor_auto_stop();
-                //DRV8871_forward_brake();
-				break;
-			case 'r':
-                motor_next_state = M_Reverse_Starting;
+                break;
+            case 'r':
+                motor_reverse();
                 motor_auto_stop();
-                //DRV8871_reverse_brake();
-				break;
-			case 'b':
-                motor_next_state = M_Brake;
+                break;
+            case 'b':
+                motor_brake();
                 motor_auto_stop();
-                //DRV8871_brake();
-				break;
-			case 'c':
-                motor_next_state = M_Coast;
+                break;
+            case 'c':
+                motor_coast();
                 motor_auto_stop();
-                //DRV8871_coast();
-				break;
-			case '+':
-                DRV8871_speed_up();
-				break;
-			case '-':
-                DRV8871_speed_down();
-				break;
+                break;
+            case '+':
+                motor_speed_up();
+                break;
+            case '-':
+                motor_speed_down();
+                break;
             case 'p':
                 print_status();
                 break;
-			default:
-				ESP_LOGW(TAG, "Unrecognized command: %c", cmdbuf[0]);
-				break;
-		}
-	}
+            default:
+                ESP_LOGW(TAG, "Unrecognized command: %c", cmdbuf[0]);
+                break;
+        }
+    }
     ESP_LOGI(TAG, "Console %s logged out.", id);
 
 exit:

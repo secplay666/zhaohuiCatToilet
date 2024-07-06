@@ -32,11 +32,11 @@ void app_main(void)
     ESP_ERROR_CHECK(esp_netif_init());
 
     // create message buffer
-	//messageBuffer = xMessageBufferCreate(COMMANDBUFFSIZE);
-	//if (NULL == messageBuffer){
-	//	ESP_LOGE(TAG, "Failed to create message buffer");
-	//	ESP_ERROR_CHECK(ESP_ERR_NO_MEM);
-	//}
+    //messageBuffer = xMessageBufferCreate(COMMANDBUFFSIZE);
+    //if (NULL == messageBuffer){
+    //  ESP_LOGE(TAG, "Failed to create message buffer");
+    //  ESP_ERROR_CHECK(ESP_ERR_NO_MEM);
+    //}
 
     gpio_dump_io_configuration(stdout, SOC_GPIO_VALID_GPIO_MASK);
 

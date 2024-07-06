@@ -33,24 +33,24 @@ void HX711_DO_isr(void *pvParameters){
 }
 
 esp_err_t HX711_init(){
-	gpio_config_t io_conf = {};
-	
-	//configure GPIO for CLK
-	io_conf.intr_type = GPIO_INTR_DISABLE;
-	io_conf.mode = GPIO_MODE_OUTPUT;
-	io_conf.pin_bit_mask = (1ULL << ADSK_GPIO);
-	io_conf.pull_down_en = 0;
-	io_conf.pull_up_en = 0;
-	ESP_RETURN_ON_ERROR(gpio_config(&io_conf), TAG, "configure GPIO failed for CLK");
-	ESP_RETURN_ON_ERROR(gpio_set_drive_capability(ADSK_GPIO, GPIO_DRIVE_CAP_0), TAG, "setting GPIO driving capability failed for CLK");
-	
-	//configure GPIO for DO
-	io_conf.intr_type = GPIO_INTR_NEGEDGE;
-	io_conf.mode = GPIO_MODE_INPUT;
-	io_conf.pin_bit_mask = (1ULL << ADDO_GPIO);
-	io_conf.pull_down_en = 0;
-	io_conf.pull_up_en = 0;
-	ESP_RETURN_ON_ERROR(gpio_config(&io_conf), TAG, "configure GPIO failed for DO");
+    gpio_config_t io_conf = {};
+    
+    //configure GPIO for CLK
+    io_conf.intr_type = GPIO_INTR_DISABLE;
+    io_conf.mode = GPIO_MODE_OUTPUT;
+    io_conf.pin_bit_mask = (1ULL << ADSK_GPIO);
+    io_conf.pull_down_en = 0;
+    io_conf.pull_up_en = 0;
+    ESP_RETURN_ON_ERROR(gpio_config(&io_conf), TAG, "configure GPIO failed for CLK");
+    ESP_RETURN_ON_ERROR(gpio_set_drive_capability(ADSK_GPIO, GPIO_DRIVE_CAP_0), TAG, "setting GPIO driving capability failed for CLK");
+    
+    //configure GPIO for DO
+    io_conf.intr_type = GPIO_INTR_NEGEDGE;
+    io_conf.mode = GPIO_MODE_INPUT;
+    io_conf.pin_bit_mask = (1ULL << ADDO_GPIO);
+    io_conf.pull_down_en = 0;
+    io_conf.pull_up_en = 0;
+    ESP_RETURN_ON_ERROR(gpio_config(&io_conf), TAG, "configure GPIO failed for DO");
 
     //install callback service for all GPIOs
     esp_err_t err_code = gpio_install_isr_service(ESP_INTR_FLAG_LOWMED);
@@ -62,7 +62,7 @@ esp_err_t HX711_init(){
     }
 
     //install interrupt callback
-	ESP_RETURN_ON_ERROR(gpio_isr_handler_add(ADDO_GPIO, HX711_DO_isr, NULL), TAG, "configure GPIO failed for DO");
+    ESP_RETURN_ON_ERROR(gpio_isr_handler_add(ADDO_GPIO, HX711_DO_isr, NULL), TAG, "configure GPIO failed for DO");
 
     //set CLK=0
     gpio_set_level(ADSK_GPIO, 0);

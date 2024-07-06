@@ -51,7 +51,7 @@ static void give_semaphore(){
     uint32_t notify_value;
     assert(NULL != server_task_handle);
     ESP_LOGI(TAG, "Giving Semaphore...");
-    xTaskGenericNotify(server_task_handle, conn_notify_index, 0, eIncrement, &notify_value);
+    xTaskNotifyAndQueryIndexed(server_task_handle, conn_notify_index, 0, eIncrement, &notify_value);
     ESP_LOGI(TAG, "Semaphore value: %lu", notify_value+1);
 }
 
@@ -184,10 +184,11 @@ void tcp_server_task(void *pvParameters)
         //close before accepting new connection.
         //Decrease available connection number by 1 .
         do {
-            notify_value = ulTaskNotifyTakeIndexed(conn_notify_index, pdFALSE, 5000 / portTICK_PERIOD_MS);
+            //timeout after 60 seconds
+            notify_value = ulTaskNotifyTakeIndexed(conn_notify_index, pdFALSE, 60000 / portTICK_PERIOD_MS);
             ESP_LOGI(TAG, "connection semaphore value: %ld", notify_value);
             if (notify_value == 0)
-                ESP_LOGI(TAG, "Too many connections. Waiting for one to exit...");
+                ESP_LOGI(TAG, "Maximal connections established. Waiting for one to exit...");
         } while (notify_value == 0);
 
         ESP_LOGI(TAG, "Socket listening");
