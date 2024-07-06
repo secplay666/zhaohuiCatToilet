@@ -12,7 +12,6 @@
 #include <sys/param.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-//#include "freertos/message_buffer.h"
 #include "esp_system.h"
 #include "esp_wifi.h"
 #include "esp_event.h"
@@ -21,6 +20,7 @@
 #include "nvs_flash.h"
 #include "esp_netif.h"
 #include "errno.h"
+#include "assert.h"
 #include "string.h"
 #include "sys/unistd.h"
 
@@ -46,80 +46,14 @@ static const char *TAG = "server";
 static const UBaseType_t conn_notify_index = 1;
 static TaskHandle_t server_task_handle = NULL;
 
-/*
-static void do_retransmit(const int sock)
-{
-    int len;
-    char rx_buffer[BUFFSIZE];
-	size_t cmdlen = 0;
-	char cmdbuf[BUFFSIZE];
-
-	char c = 0;
-	bool escape = false;
-	bool overflow = false;
-
-    do {
-        len = recv(sock, rx_buffer, sizeof(rx_buffer) - 1, 0);
-        if (len < 0) {
-            ESP_LOGE(TAG, "Error occurred during receiving: errno %d", errno);
-        } else if (len == 0) {
-            ESP_LOGW(TAG, "Connection closed");
-        } else {
-            rx_buffer[len] = 0; // Null-terminate whatever is received and treat it like a string
-            //ESP_LOGI(TAG, "Received %d bytes: %s", len, rx_buffer);
-            ESP_LOGI(TAG, "Received %d bytes", len);
-
-			for (size_t i = 0; i < len; ++i){
-				c = rx_buffer[i];
-				if (escape) {
-					if (cmdlen >= BUFFSIZE-1){
-						if (!overflow){
-							overflow = true;
-							ESP_LOGW("stream", "Max command length %d exceeded", BUFFSIZE);
-						}
-					} else cmdbuf[cmdlen++] = c;
-					escape = false;
-				} else {
-					switch (c) {
-						case '\\':
-							escape = true;
-							break;
-						case '\n':
-							// send data to command processing task
-                            if (messageBuffer)
-                                xMessageBufferSend(messageBuffer, cmdbuf, cmdlen, portMAX_DELAY);
-							overflow = false;
-							cmdlen = 0;
-							break;
-						default:
-							if (cmdlen >= BUFFSIZE){
-								if (!overflow){
-									overflow = true;
-									ESP_LOGW("stream", "Max command length %d exceeded", BUFFSIZE);
-								}
-							} else cmdbuf[cmdlen++] = c;
-							break;
-					}
-				}
-			}
-
-
-            // send() can return less bytes than supplied length.
-            // Walk-around for robust implementation.
-			
-            //int to_write = len;
-            //while (to_write > 0) {
-            //    int written = send(sock, rx_buffer + (len - to_write), to_write, 0);
-            //    if (written < 0) {
-            //        ESP_LOGE(TAG, "Error occurred during sending: errno %d", errno);
-            //    }
-            //    to_write -= written;
-            //}
-			
-        }
-    } while (len > 0);
+static void give_semaphore(){
+    //xTaskNotifyGiveIndexed(server_task_handle, conn_notify_index);
+    uint32_t notify_value;
+    assert(NULL != server_task_handle);
+    ESP_LOGI(TAG, "Giving Semaphore...");
+    xTaskGenericNotify(server_task_handle, conn_notify_index, 0, eIncrement, &notify_value);
+    ESP_LOGI(TAG, "Semaphore value: %lu", notify_value+1);
 }
-*/
 
 void cleanup_socket(command_parameter * para){
     //shutdown(sock, 0);
@@ -130,19 +64,11 @@ void cleanup_socket(command_parameter * para){
         fclose(para->stream_in);
     free(para);
     //connection ends, increasing semaphore
-    xTaskNotifyGiveIndexed(server_task_handle, conn_notify_index);
+    give_semaphore();
 }
 
 esp_err_t start_console(int sock){
     esp_err_t err = ESP_OK;
-
-    //int sock_copy = dup(sock);
-    //if (sock_copy < 0){
-    //    ESP_LOGE(TAG, "dup: %s", strerror(errno));
-    //    err = ESP_FAIL;
-    //    close(sock);
-    //    goto exit;
-    //}
 
     //open stream for read and write
     FILE* stream_in = fdopen(sock, "r+");
@@ -151,15 +77,7 @@ esp_err_t start_console(int sock){
         err = ESP_FAIL;
         goto exit_cleanup1;
     }
-
     FILE* stream_out = stream_in;
-    //FILE* stream_out = fdopen(sock_copy, "w");
-    //if (NULL == stream_out){
-    //    ESP_LOGE(TAG, "fdopen: %s", strerror(errno));
-    //    fclose(stream_in);
-    //    err = ESP_FAIL;
-    //    goto exit_cleanup1;
-    //}
 
     command_parameter * para = malloc(sizeof(command_parameter));
     if (NULL == para){
@@ -192,7 +110,7 @@ exit_cleanup1:
     close(sock);
 exit:
     //creation of task failed, increasing semaphore
-    xTaskNotifyGiveIndexed(server_task_handle, conn_notify_index);
+    give_semaphore();
     return err;
 }
 
@@ -259,17 +177,23 @@ void tcp_server_task(void *pvParameters)
     //to limit connection number to MAX_CONN
     xTaskNotifyIndexed(server_task_handle, conn_notify_index, MAX_CONN, eSetValueWithOverwrite);
 
+    uint32_t notify_value;
+
     while (1) {
+        //If we have maximal connections, wait for some other connection to
+        //close before accepting new connection.
+        //Decrease available connection number by 1 .
+        do {
+            notify_value = ulTaskNotifyTakeIndexed(conn_notify_index, pdFALSE, 5000 / portTICK_PERIOD_MS);
+            ESP_LOGI(TAG, "connection semaphore value: %ld", notify_value);
+            if (notify_value == 0)
+                ESP_LOGI(TAG, "Too many connections. Waiting for one to exit...");
+        } while (notify_value == 0);
+
         ESP_LOGI(TAG, "Socket listening");
 
         struct sockaddr_storage source_addr; // Large enough for both IPv4 or IPv6
         socklen_t addr_len = sizeof(source_addr);
-
-        //If we have maximal connections, wait for some other connection to
-        //close before accepting new connection.
-        //Decrease available connection number by 1 .
-        uint32_t notify_value = ulTaskNotifyTakeIndexed(conn_notify_index, pdFALSE, 5000 / portTICK_PERIOD_MS);
-        ESP_LOGI(TAG, "connection semaphore value: %ld", notify_value);
 
         int sock = accept(listen_sock, (struct sockaddr *)&source_addr, &addr_len);
         if (sock < 0) {

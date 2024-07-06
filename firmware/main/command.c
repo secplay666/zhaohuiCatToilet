@@ -2,6 +2,7 @@
 #include "freertos/task.h"
 #include "driver/uart.h"
 #include "driver/uart_vfs.h"
+#include "linenoise/linenoise.h"
 #include "esp_log.h"
 #include "esp_err.h"
 #include "stdio.h"
@@ -70,10 +71,11 @@ void command_task(void *pvParameters)
 {
     command_parameter *para = (command_parameter *) pvParameters;
 	size_t cmdlen = 0;
-	char cmdbuf[COMMANDBUFFSIZE];
+	char *cmdbuf = NULL, *p;
     const char *id = "uart";
-    const char *prompt = "esp> ";
-	char *p = cmdbuf;
+    const char *prompt = LOG_COLOR(LOG_COLOR_YELLOW)"esp> "LOG_RESET_COLOR;
+    const char *prompt_nocolor = "esp> ";
+    bool use_console = true;
     bool quit = false;
 	uint8_t b;
 
@@ -86,30 +88,63 @@ void command_task(void *pvParameters)
         id = para->id;
         stdin  = para->stream_in;
         stdout = para->stream_out;
+        //setting dumb mode for linenoise
+        linenoiseSetDumbMode(1);
+        prompt = prompt_nocolor;
+        use_console = false;
     }
     else {
         //install uart driver
         if (!uart_is_driver_installed(CONFIG_ESP_CONSOLE_UART_NUM))
             ESP_ERROR_CHECK(uart_driver_install(CONFIG_ESP_CONSOLE_UART_NUM, uart_buffer_size, uart_buffer_size, 0, NULL, 0));
         //use blocking driver mode for uart console
-        ESP_LOGI(TAG, "before setting up uart driver %d", CONFIG_ESP_CONSOLE_UART_NUM);
         uart_vfs_dev_use_driver(CONFIG_ESP_CONSOLE_UART_NUM);
-        //vTaskDelay(10000 / portTICK_PERIOD_MS);
-        ESP_LOGI(TAG, "after setting up uart driver");
+
+        // Disable buffering on stdin of the current task.
+        setvbuf(stdin, NULL, _IONBF, 0);
+        /* Figure out if the terminal supports escape sequences */
+        int probe_status = linenoiseProbe();
+        if (probe_status) {
+            /* zero indicates success */
+            linenoiseSetDumbMode(1);
+#if CONFIG_LOG_COLORS
+            /* Since the terminal doesn't support escape sequences,
+             * don't use color codes in the s_prompt.
+             */
+            prompt = prompt_nocolor;
+#endif //CONFIG_LOG_COLORS
+        }
+        if (linenoiseIsDumbMode()) {
+            printf("\n"
+                   "Your terminal application does not support escape sequences.\n\n"
+                   "Line editing and history features are disabled.\n\n"
+                   "On Windows, try using Putty instead.\n");
+        }
     }
 
 start:
     //print greetings message
     fputs(greetings, stdout);
+    if (!use_console) {
+        cmdbuf = calloc(1, COMMANDBUFFSIZE);
+        if (NULL == cmdbuf){
+            ESP_LOGE(TAG, "Cannot allocate command buffer. calloc: %s", strerror(errno));
+            goto exit;
+        }
+    }
 
     //command loop
 	while (!quit) {
-        // print pormpt string
-        fputs(prompt, stdout);
-        fflush(stdout);
+        if (use_console) {
+            p = linenoise(prompt);
+            cmdbuf = p;
+        } else {
+            // print pormpt string
+            fputs(prompt, stdout);
+            fflush(stdout);
+            p = fgets(cmdbuf, COMMANDBUFFSIZE, stdin);
+        }
         
-		//cmdlen = xMessageBufferReceive(messageBuffer, cmdbuf, COMMANDBUFFSIZE-1, portMAX_DELAY);
-        p = fgets(cmdbuf, COMMANDBUFFSIZE, stdin);
         //handle input error
 		if (NULL == p) {
             if (feof(stdin)){
@@ -202,6 +237,9 @@ start:
     ESP_LOGI(TAG, "Console %s logged out.", id);
 
 exit:
+    if (!use_console)
+        if (NULL != cmdbuf)
+            free(cmdbuf);
     if (NULL == para){
         //sleep and restart if we are on uart console
         vTaskDelay(2000 / portTICK_PERIOD_MS);

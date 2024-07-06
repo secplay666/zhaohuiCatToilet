@@ -42,6 +42,7 @@ esp_err_t HX711_init(){
 	io_conf.pull_down_en = 0;
 	io_conf.pull_up_en = 0;
 	ESP_RETURN_ON_ERROR(gpio_config(&io_conf), TAG, "configure GPIO failed for CLK");
+	ESP_RETURN_ON_ERROR(gpio_set_drive_capability(ADSK_GPIO, GPIO_DRIVE_CAP_0), TAG, "setting GPIO driving capability failed for CLK");
 	
 	//configure GPIO for DO
 	io_conf.intr_type = GPIO_INTR_NEGEDGE;
@@ -78,27 +79,26 @@ long HX711_read(int next_sense){
     long count;
     unsigned char i;
 
+    assert(next_sense >= 1 && next_sense <= 3);
+
     count = 0;
-    for (i = 0; i < 24; i++) {
+    //shift in data while setting transformation mode for next data
+    for (i = 0; i < 24+next_sense; i++) {
         gpio_set_level(ADSK_GPIO, 1);
         count = count << 1; 
         gpio_set_level(ADSK_GPIO, 0); 
-        if (gpio_get_level(ADDO_GPIO) == 1) 
-            count++;
+        count |= gpio_get_level(ADDO_GPIO) & 0x1;
     }
 
-    //setting transformation mode for next data
-    for (i = 0; i < next_sense; i++) {
-        gpio_set_level(ADSK_GPIO, 1);
-        gpio_set_level(ADSK_GPIO, 0);
-        //DO should be 1 at this time
+    //check input data at last 1~3 clocks
+    if (~count & ((0x1<<next_sense) - 1)) {
+        //DO should be 1 at the last few clocks
         //a constant 0 signal on DO may indicate no connection
-        if (gpio_get_level(ADDO_GPIO) == 0) 
-            count = HX711_READ_ERROR;
-    }
-
-    if (count == HX711_READ_ERROR)
+        count = HX711_READ_ERROR;
         return count;
+    }
+    //discard extra bits
+    count = count >> next_sense;
 
     //handle 2's compliment for 24 bit input
     if (count > 0x800000)
@@ -139,8 +139,9 @@ void HX711_task(void *pvParameters){
         //handling read error
         if (HX711_data == HX711_READ_ERROR) {
             ESP_LOGE(TAG, "Error Reading HX711 data");
-            //wait 5s for retry
+            //wait 10s for retry
             vTaskDelay(10000 / portTICK_PERIOD_MS);
+            HX711_reset();
             continue;
         }
         printf("%s: %ld\n", TAG, HX711_data);
