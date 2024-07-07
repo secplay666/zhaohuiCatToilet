@@ -24,7 +24,7 @@ static esp_err_t bdc_motor_mcpwm_reverse_brake(bdc_motor_t *motor);
 static const char *TAG = "motor";
 static bdc_motor_handle_t motor = NULL;
 static bool brake_mode = false;
-static uint32_t speed_percent = 0;
+static int speed_percent = 0;
 
 esp_err_t DRV8871_init(void){
 
@@ -50,15 +50,15 @@ esp_err_t DRV8871_init(void){
     return ESP_OK;
 }
 
-uint32_t DRV8871_get_speed(){
+int DRV8871_get_speed(){
     return speed_percent;
 }
 
-esp_err_t DRV8871_set_speed(uint32_t speed){
-    ESP_RETURN_ON_FALSE(speed <= 100, ESP_ERR_INVALID_ARG, TAG, "invalid argument: %"PRIu32, speed);
+esp_err_t DRV8871_set_speed(int speed){
+    ESP_RETURN_ON_FALSE(speed <= 100, ESP_ERR_INVALID_ARG, TAG, "invalid argument: %d", speed);
     speed_percent = speed;
-    ESP_LOGD(TAG, "Set motor speed: %"PRIu32, speed);
-    uint32_t comp_value = speed * BDC_MCPWM_DUTY_TICK_MAX /100;
+    ESP_LOGD(TAG, "Set motor speed: %d", speed);
+    int comp_value = speed * BDC_MCPWM_DUTY_TICK_MAX /100;
     if (brake_mode)
         comp_value = BDC_MCPWM_DUTY_TICK_MAX - comp_value;
     return bdc_motor_set_speed(motor, comp_value);

@@ -96,7 +96,7 @@ void motor_task(void *pvParameters)
 {
     TickType_t xLastWakeTime = xTaskGetTickCount();
     const TickType_t xPeriod = PERIOD / portTICK_PERIOD_MS;
-    uint32_t speed;
+    int speed;
     motor_task_handle = xTaskGetCurrentTaskHandle();
     enum motor_state next_state;
 
@@ -130,7 +130,7 @@ void motor_task(void *pvParameters)
                 else if (next_state == M_Reverse){
                     state = M_Reverse_Starting;
                     DRV8871_set_speed(0);
-                    DRV8871_forward_brake();
+                    DRV8871_reverse_brake();
                     counter = 0;
                 }
                 //clearing command

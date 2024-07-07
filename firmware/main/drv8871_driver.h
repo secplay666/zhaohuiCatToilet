@@ -12,8 +12,8 @@
 
 esp_err_t DRV8871_init(void);
 
-esp_err_t DRV8871_set_speed(uint32_t speed);
-uint32_t DRV8871_get_speed();
+esp_err_t DRV8871_set_speed(int speed);
+int DRV8871_get_speed();
 //esp_err_t DRV8871_speed_up(void);
 //esp_err_t DRV8871_speed_down(void);
 
