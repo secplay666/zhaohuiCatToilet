@@ -15,4 +15,8 @@ esp_err_t motor_coast();
 esp_err_t motor_speed_up();
 esp_err_t motor_speed_down();
 
+enum motor_state motor_get_state();
+const char * motor_get_state_str();
+int motor_get_speed();
+
 #endif

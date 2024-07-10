@@ -5,6 +5,7 @@
 #include "esp_log.h"
 #include "esp_check.h"
 #include "assert.h"
+#include "stdio.h"
 
 #include "hx711_driver.h"
 
@@ -23,6 +24,8 @@ static const UBaseType_t do_notify_index = 1;
 static bool HX711_initialized = false;
 static TaskHandle_t HX711_task_handle = NULL;
 static long HX711_data = 0;
+static bool output_enable = false;
+static FILE* output_stream = NULL;
 
 void HX711_DO_isr(void *pvParameters){
     BaseType_t xHigherPriorityTaskWoken = pdFALSE;
@@ -67,12 +70,31 @@ esp_err_t HX711_init(){
     //set CLK=0
     gpio_set_level(ADSK_GPIO, 0);
 
+    //set output stream
+    output_stream = stdout;
+
     HX711_initialized = true;
     return ESP_OK;
 }
 
 long HX711_get_data(){
     return HX711_data;
+}
+
+void HX711_toggle_output(FILE* stream){
+    output_enable = !output_enable;
+    if (NULL != stream)
+        output_stream = stream;
+}
+
+void HX711_enable_output(FILE* stream){
+    output_enable = true;
+    if (NULL != stream)
+        output_stream = stream;
+}
+
+void HX711_disable_output(){
+    output_enable = false;
 }
 
 long HX711_read(int next_sense){
@@ -144,7 +166,8 @@ void HX711_task(void *pvParameters){
             HX711_reset();
             continue;
         }
-        printf("%s: %ld\n", TAG, HX711_data);
+        if (output_enable)
+            fprintf(output_stream, "%s: %ld\n", TAG, HX711_data);
         //delay 50 ms to prevent spamming output
         vTaskDelay(50 / portTICK_PERIOD_MS);
     }

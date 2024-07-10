@@ -56,8 +56,12 @@ static void give_semaphore(){
 }
 
 void cleanup_socket(command_parameter * para){
-    //shutdown(sock, 0);
-    if (para->stream_in == para->stream_out) {
+    assert(NULL != para->stream_in);
+    assert(NULL != para->stream_out);
+    if (shutdown(fileno(para->stream_in), SHUT_RD) < 0) {
+        ESP_LOGE(TAG, "shutdown: %s", strerror(errno));
+    }
+    if (para->stream_in != para->stream_out) {
         fclose(para->stream_in);
         fclose(para->stream_out);
     } else

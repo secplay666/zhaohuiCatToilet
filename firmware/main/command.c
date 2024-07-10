@@ -2,19 +2,23 @@
 #include "freertos/task.h"
 #include "driver/uart.h"
 #include "driver/uart_vfs.h"
+#include "driver/gpio.h"
 #include "linenoise/linenoise.h"
 #include "esp_log.h"
 #include "esp_err.h"
+#include "esp_heap_caps.h"
 #include "stdio.h"
 #include "errno.h"
 #include "string.h"
 
 #include "TM1638_driver.h"
 #include "drv8871_driver.h"
+#include "hx711_driver.h"
 #include "motor.h"
 #include "command.h"
 
 #define STR(x) #x
+#define M_STR(x) STR(x)
 #define COMPOSE_VERSION(major, minor, patch) STR(major.minor.patch)
 #define VERSION COMPOSE_VERSION(CONFIG_PROJECT_VERSION_MAJOR, CONFIG_PROJECT_VERSION_MINOR, CONFIG_PROJECT_VERSION_PATCH)
 #define PROJECT_NAME CONFIG_PROJECT_NAME
@@ -28,14 +32,20 @@ const char *greetings = "This is " PROJECT_NAME " commandline interface, version
 "Enter ? or h for help:\n";
 
 const char *helpstr = "Commands:\n"
-"w      write "STR(TM1638_MEMSIZE)" bytes of hex data to TM1638 segment display\n"
+"h ?    print this help\n"
+"w      write "M_STR(TM1638_MEMSIZE)" bytes of hex data to TM1638 segment display\n"
 "s      write a string to TM1638 segment display\n"
+"d      toggle weight sensor data output\n"
+//"i      setting wifi ssid and password\n"
 "f      start motor forward\n"
 "r      start motor reversed\n"
 "b      brake motor\n"
 "c      coast motor\n"
+"p      print state\n"
 "+      speedup motor\n"
 "-      speeddown motor\n"
+"g      print gpio usage info\n"
+"m      print heap memory usage info\n"
 "q      exit console\n"
 "\n";
 
@@ -64,7 +74,17 @@ void print_help(){
     fputs(helpstr, stdout);
 }
 
+void print_motor_speed(){
+    printf("motor speed: %d\n", motor_get_speed());
+}
+
+void print_motor_state(){
+    printf("motor: %s\n", motor_get_state_str());
+}
+
 void print_status(){
+    print_motor_state();
+    print_motor_speed();
 }
 
 void command_task(void *pvParameters)
@@ -199,8 +219,8 @@ start:
                 }
                 TM1638_flush();
                 break;
-            case 'q':
-                quit = true;
+            case 'd':
+                HX711_toggle_output(stdout);
                 break;
             case 'f':
                 motor_forward();
@@ -220,12 +240,23 @@ start:
                 break;
             case '+':
                 motor_speed_up();
+                print_motor_speed();
                 break;
             case '-':
                 motor_speed_down();
+                print_motor_speed();
                 break;
             case 'p':
                 print_status();
+                break;
+            case 'g':
+                gpio_dump_io_configuration(stdout, SOC_GPIO_VALID_GPIO_MASK);
+                break;
+            case 'm':
+                heap_caps_print_heap_info(MALLOC_CAP_8BIT);
+                break;
+            case 'q':
+                quit = true;
                 break;
             default:
                 ESP_LOGW(TAG, "Unrecognized command: %c", cmdbuf[0]);
@@ -235,15 +266,18 @@ start:
     ESP_LOGI(TAG, "Console %s logged out.", id);
 
 exit:
-    if (!use_console)
-        if (NULL != cmdbuf)
-            free(cmdbuf);
-    if (NULL == para){
+    if (use_console) {
         //sleep and restart if we are on uart console
         vTaskDelay(2000 / portTICK_PERIOD_MS);
+        quit = false;
         goto start;
     }
-    else if (NULL != para->at_exit) {
+    else {
+        if (NULL != cmdbuf)
+            free(cmdbuf);
+    }
+
+    if (NULL != para && NULL != para->at_exit) {
         //run callback function
         para->at_exit(para);
     }

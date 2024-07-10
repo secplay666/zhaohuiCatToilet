@@ -23,6 +23,18 @@ const int START_TIME = 2000;
 static int max_speed = 50;
 const int SPEED_STEP = 5;
 
+const char * const state_string[]={
+    "Idle", "Forward", "Reverse", "Forward_Starting", "Reverse_Starting", "Brake", "Coast",
+};
+
+enum motor_state motor_get_state(){
+    return state;
+}
+
+const char * motor_get_state_str(){
+    return state_string[state];
+}
+
 esp_err_t motor_auto_process(){
     motor_auto = true;
     //motor_auto_count = 0;
@@ -68,6 +80,10 @@ esp_err_t motor_coast(){
     ESP_RETURN_ON_FALSE((NULL != motor_task_handle), ESP_FAIL, TAG, "motor task not initialized");
     xTaskNotifyIndexed(motor_task_handle, notify_index, M_Coast, eSetValueWithOverwrite);
     return ESP_OK;
+}
+
+int motor_get_speed(){
+    return max_speed;
 }
 
 esp_err_t motor_speed_up(){
