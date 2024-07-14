@@ -6,6 +6,7 @@
 #include "esp_check.h"
 #include "assert.h"
 #include "stdio.h"
+#include "inttypes.h"
 
 #include "hx711_driver.h"
 
@@ -82,15 +83,24 @@ long HX711_get_data(){
 }
 
 void HX711_toggle_output(FILE* stream){
-    output_enable = !output_enable;
-    if (NULL != stream)
-        output_stream = stream;
+    if (NULL != stream && NULL != output_stream && stream != output_stream)
+        HX711_enable_output(stream);
+    else if (output_enable)
+        HX711_disable_output();
+    else
+        HX711_enable_output(stream);
 }
 
 void HX711_enable_output(FILE* stream){
-    output_enable = true;
-    if (NULL != stream)
+    if (NULL != stream){
+        if (NULL != output_stream && stream != output_stream){
+            //redirect to another terminal
+            fprintf(output_stream, "%s: output redirected to another terminal\n", TAG);
+            fflush(output_stream);
+        }
         output_stream = stream;
+    }
+    output_enable = true;
 }
 
 void HX711_disable_output(){
@@ -166,8 +176,10 @@ void HX711_task(void *pvParameters){
             HX711_reset();
             continue;
         }
-        if (output_enable)
-            fprintf(output_stream, "%s: %ld\n", TAG, HX711_data);
+        if (output_enable){
+            fprintf(output_stream, "(%"PRIu32") %s: %ld\n", esp_log_timestamp(), TAG, HX711_data);
+            fflush(output_stream);
+        }
         //delay 50 ms to prevent spamming output
         vTaskDelay(50 / portTICK_PERIOD_MS);
     }

@@ -35,7 +35,7 @@ const char *helpstr = "Commands:\n"
 "h ?    print this help\n"
 "w      write "M_STR(TM1638_MEMSIZE)" bytes of hex data to TM1638 segment display\n"
 "s      write a string to TM1638 segment display\n"
-"d      toggle weight sensor data output\n"
+"d      start/stop data output from weight sensor\n"
 //"i      setting wifi ssid and password\n"
 "f      start motor forward\n"
 "r      start motor reversed\n"
@@ -85,6 +85,8 @@ void print_motor_state(){
 void print_status(){
     print_motor_state();
     print_motor_speed();
+    ////including ssid, connection, ip address, port, etc.
+    //print_wifi_state(); 
 }
 
 void command_task(void *pvParameters)
@@ -175,6 +177,7 @@ start:
             }
             else {
                 ESP_LOGE(TAG, "fgets: %s", strerror(errno));
+                goto exit;
             }
         }
         //ESP_LOGI(TAG, "Command (%d bytes): %s", cmdlen, cmdbuf);

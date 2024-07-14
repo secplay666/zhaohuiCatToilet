@@ -25,7 +25,7 @@ static void event_handler(void* arg, esp_event_base_t event_base,
         if (s_retry_num < CONFIG_MAXIMUM_RETRY) {
             esp_wifi_connect();
             s_retry_num++;
-            ESP_LOGI(TAG, "retry to connect to the AP");
+            ESP_LOGI(TAG, "retry connecting to the AP");
         } else {
             xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
         }
@@ -48,7 +48,9 @@ esp_err_t wifi_sta_do_connect() {
         },
     };
 
+    // set station mode
     ESP_RETURN_ON_ERROR(esp_wifi_set_mode(WIFI_MODE_STA), TAG, "esp_wifi_set_mode failed");
+    // set wifi config
     ESP_RETURN_ON_ERROR(esp_wifi_set_config(WIFI_IF_STA, &wifi_config), TAG, "esp_wifi_set_config failed");
 
     // starting esp_wifi
@@ -95,14 +97,14 @@ esp_err_t wifi_start() {
                 &event_handler,
                 NULL,
                 &instance_any_id),
-            TAG, "register ANY_ID event failed");
+            TAG, "register WIFI_EVENT:ANY_ID event failed");
     ESP_RETURN_ON_ERROR(esp_event_handler_instance_register(
                 IP_EVENT,
                 IP_EVENT_STA_GOT_IP,
                 &event_handler,
                 NULL,
                 &instance_got_ip),
-            TAG, "register STA_GOT_IP event failed");
+            TAG, "register IP_EVENT:STA_GOT_IP event failed");
 
     return ESP_OK;
 }

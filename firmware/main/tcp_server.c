@@ -58,14 +58,24 @@ static void give_semaphore(){
 void cleanup_socket(command_parameter * para){
     assert(NULL != para->stream_in);
     assert(NULL != para->stream_out);
-    if (shutdown(fileno(para->stream_in), SHUT_RD) < 0) {
+    //clearing write buffer
+    fflush(para->stream_out);
+    //shutdown socket
+    if (shutdown(fileno(para->stream_in), SHUT_RDWR) < 0) {
         ESP_LOGE(TAG, "shutdown: %s", strerror(errno));
     }
+    //clearing read buffer
+    while (EOF != fgetc(para->stream_in));
+    if (feof(para->stream_in)){
+        ESP_LOGE(TAG, "fgetc: %s", strerror(errno));
+    }
+    //closing socket stream & fd
     if (para->stream_in != para->stream_out) {
         fclose(para->stream_in);
         fclose(para->stream_out);
     } else
         fclose(para->stream_in);
+    //free parameter memory
     free(para);
     //connection ends, increasing semaphore
     give_semaphore();
@@ -95,6 +105,7 @@ esp_err_t start_console(int sock){
     para->at_exit = cleanup_socket;
 
     //create command task
+    ESP_LOGI(TAG, "starting console on webconsole");
     BaseType_t rtos_err = xTaskCreate(command_task, "webconsole", 4096, (void*)para, 5, NULL);
     if (pdPASS != rtos_err){
         ESP_LOGE(TAG, "xTaskCreate failed: Cannot allocate required memory");
