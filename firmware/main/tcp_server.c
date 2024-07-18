@@ -31,6 +31,7 @@
 
 #include "command.h"
 #include "tcp_server.h"
+#include "connection_dup.h"
 
 #define PORT                        CONFIG_PORT
 #define KEEPALIVE_IDLE              CONFIG_KEEPALIVE_IDLE
@@ -50,9 +51,9 @@ static void give_semaphore(){
     //xTaskNotifyGiveIndexed(server_task_handle, conn_notify_index);
     uint32_t notify_value;
     assert(NULL != server_task_handle);
-    ESP_LOGI(TAG, "Giving Semaphore...");
+    ESP_LOGD(TAG, "Giving Semaphore...");
     xTaskNotifyAndQueryIndexed(server_task_handle, conn_notify_index, 0, eIncrement, &notify_value);
-    ESP_LOGI(TAG, "Semaphore value: %lu", notify_value+1);
+    ESP_LOGD(TAG, "Semaphore value: %lu", notify_value+1);
 }
 
 void cleanup_socket(command_parameter * para){
@@ -61,7 +62,7 @@ void cleanup_socket(command_parameter * para){
     //clearing write buffer
     fflush(para->stream_out);
     //shutdown socket
-    if (shutdown(fileno(para->stream_in), SHUT_RDWR) < 0) {
+    if (shutdown(fileno(para->stream_out), SHUT_RDWR) < 0) {
         ESP_LOGE(TAG, "shutdown: %s", strerror(errno));
     }
     //clearing read buffer
@@ -73,8 +74,9 @@ void cleanup_socket(command_parameter * para){
     if (para->stream_in != para->stream_out) {
         fclose(para->stream_in);
         fclose(para->stream_out);
-    } else
+    } else {
         fclose(para->stream_in);
+    }
     //free parameter memory
     free(para);
     //connection ends, increasing semaphore
@@ -83,15 +85,29 @@ void cleanup_socket(command_parameter * para){
 
 esp_err_t start_console(int sock){
     esp_err_t err = ESP_OK;
+    int sock_dup = connection_dup(sock);
+    if (sock_dup < 0) {
+        ESP_LOGE(TAG, "connection_dup: %s", strerror(errno));
+        err = ESP_FAIL;
+        close(sock);
+        goto exit;
+    }
 
     //open stream for read and write
-    FILE* stream_in = fdopen(sock, "r+");
+    FILE* stream_in = fdopen(sock_dup, "r");
     if (NULL == stream_in){
         ESP_LOGE(TAG, "fdopen: %s", strerror(errno));
         err = ESP_FAIL;
         goto exit_cleanup1;
     }
-    FILE* stream_out = stream_in;
+    FILE* stream_out = fdopen(sock, "w");
+    if (NULL == stream_out){
+        ESP_LOGE(TAG, "fdopen: %s", strerror(errno));
+        err = ESP_FAIL;
+        fclose(stream_in);
+        close(sock);
+        goto exit;
+    }
 
     command_parameter * para = malloc(sizeof(command_parameter));
     if (NULL == para){
@@ -117,11 +133,11 @@ esp_err_t start_console(int sock){
 exit_cleanup3:
     free(para);
 exit_cleanup2:
+    fclose(stream_out);
     fclose(stream_in);
-    //fclose(stream_out);
     goto exit;
 exit_cleanup1:
-    //close(sock_copy);
+    close(sock_dup);
     close(sock);
 exit:
     //creation of task failed, increasing semaphore
@@ -140,6 +156,12 @@ void tcp_server_task(void *pvParameters)
     int keepCount = KEEPALIVE_COUNT;
     struct sockaddr_storage dest_addr;
     server_task_handle = xTaskGetCurrentTaskHandle();
+
+    if (!connection_dup_initialized())
+        if(ESP_OK != init_connection_dup()){
+            ESP_LOGE(TAG, "initialize connection fd duplicator failed");
+            vTaskDelete(NULL);
+        }
 
     if (addr_family == AF_INET) {
         struct sockaddr_in *dest_addr_ip4 = (struct sockaddr_in *)&dest_addr;
@@ -201,7 +223,7 @@ void tcp_server_task(void *pvParameters)
         do {
             //timeout after 60 seconds
             notify_value = ulTaskNotifyTakeIndexed(conn_notify_index, pdFALSE, 60000 / portTICK_PERIOD_MS);
-            ESP_LOGI(TAG, "connection semaphore value: %ld", notify_value);
+            ESP_LOGD(TAG, "connection semaphore value: %ld", notify_value);
             if (notify_value == 0)
                 ESP_LOGI(TAG, "Maximal connections established. Waiting for one to exit...");
         } while (notify_value == 0);
