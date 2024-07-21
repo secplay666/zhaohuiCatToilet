@@ -156,10 +156,11 @@ void tcp_server_task(void *pvParameters)
     int keepCount = KEEPALIVE_COUNT;
     struct sockaddr_storage dest_addr;
     server_task_handle = xTaskGetCurrentTaskHandle();
+    esp_err_t ret = ESP_OK;
 
     if (!connection_dup_initialized())
-        if(ESP_OK != init_connection_dup()){
-            ESP_LOGE(TAG, "initialize connection fd duplicator failed");
+        if(ESP_OK != (ret = init_connection_dup())){
+            ESP_LOGE(TAG, "initialize connection fd duplicator failed: %s", esp_err_to_name(ret));
             vTaskDelete(NULL);
         }
 
@@ -182,7 +183,7 @@ void tcp_server_task(void *pvParameters)
 
     int listen_sock = socket(addr_family, SOCK_STREAM, ip_protocol);
     if (listen_sock < 0) {
-        ESP_LOGE(TAG, "Unable to create socket: errno %d", errno);
+        ESP_LOGE(TAG, "Unable to create socket: %s", strerror(errno));
         vTaskDelete(NULL);
         return;
     }
@@ -198,7 +199,7 @@ void tcp_server_task(void *pvParameters)
 
     int err = bind(listen_sock, (struct sockaddr *)&dest_addr, sizeof(dest_addr));
     if (err != 0) {
-        ESP_LOGE(TAG, "Socket unable to bind: errno %d", errno);
+        ESP_LOGE(TAG, "Socket unable to bind: %s", strerror(errno));
         ESP_LOGE(TAG, "IPPROTO: %d", addr_family);
         goto CLEAN_UP;
     }
@@ -206,7 +207,7 @@ void tcp_server_task(void *pvParameters)
 
     err = listen(listen_sock, 1);
     if (err != 0) {
-        ESP_LOGE(TAG, "Error occurred during listen: errno %d", errno);
+        ESP_LOGE(TAG, "Error occurred during listen: %s", strerror(errno));
         goto CLEAN_UP;
     }
 
@@ -235,7 +236,7 @@ void tcp_server_task(void *pvParameters)
 
         int sock = accept(listen_sock, (struct sockaddr *)&source_addr, &addr_len);
         if (sock < 0) {
-            ESP_LOGE(TAG, "Unable to accept connection: errno %d", errno);
+            ESP_LOGE(TAG, "Unable to accept connection: %s", strerror(errno));
             break;
         }
 

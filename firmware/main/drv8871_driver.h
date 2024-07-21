@@ -25,4 +25,7 @@ esp_err_t DRV8871_reverse_brake(void);
 esp_err_t DRV8871_coast(void);
 esp_err_t DRV8871_brake(void);
 
+//direction settings
+void DRV8871_set_direction(bool inversed);
+
 #endif

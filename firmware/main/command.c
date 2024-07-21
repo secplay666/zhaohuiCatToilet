@@ -37,6 +37,9 @@ const char *helpstr = "Commands:\n"
 "s      write a string to TM1638 segment display\n"
 "d      start/stop data output from weight sensor\n"
 //"i      setting wifi ssid and password\n"
+"l      start cleaning\n"
+"o      start homing\n"
+"t      stop motor action\n"
 "f      start motor forward\n"
 "r      start motor reversed\n"
 "b      brake motor\n"
@@ -79,7 +82,7 @@ void print_motor_speed(){
 }
 
 void print_motor_state(){
-    printf("motor: %s\n", motor_get_state_str());
+    printf("action: %s\nmotor : %s\n", motor_get_action_str(), motor_get_state_str());
 }
 
 void print_status(){
@@ -225,6 +228,18 @@ start:
             case 'd':
                 HX711_toggle_output(stdout);
                 break;
+            case 'l':
+                motor_start_cleaning();
+                motor_auto_stop();
+                break;
+            case 'o':
+                motor_start_homing();
+                motor_auto_stop();
+                break;
+            case 't':
+                motor_stop_action();
+                motor_auto_stop();
+                break;
             case 'f':
                 motor_forward();
                 motor_auto_stop();
@@ -266,6 +281,7 @@ start:
                 break;
         }
     }
+    fputs("Logging out..", stdout);
     ESP_LOGI(TAG, "Console %s logged out.", id);
 
 exit:
