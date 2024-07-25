@@ -136,4 +136,28 @@ menu "GPIO pin Configuration"
         help
             GPIO pin number for soft reset, hold for 3s to clear wifi connection config and other data
 
+    config BUTTON0
+        int "gpio for limit switch 0"
+        default 2
+        help
+            GPIO pin number connected to limit switch 0
+
+    config BUTTON1
+        int "gpio for limit switch 1"
+        default 4
+        help
+            GPIO pin number connected to limit switch 1
+
+    config BUTTON2
+        int "gpio for infrared sensor 0"
+        default 25
+        help
+            GPIO pin number connected to infrared sensor 0
+
+    config BUTTON3
+        int "gpio for infrared sensor 1"
+        default 26
+        help
+            GPIO pin number connected to infrared sensor 1
+
 endmenu

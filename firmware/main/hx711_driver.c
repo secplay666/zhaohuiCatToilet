@@ -5,6 +5,8 @@
 #include "esp_log.h"
 #include "esp_check.h"
 #include "assert.h"
+#include "stdio.h"
+#include "inttypes.h"
 
 #include "hx711_driver.h"
 
@@ -23,6 +25,8 @@ static const UBaseType_t do_notify_index = 1;
 static bool HX711_initialized = false;
 static TaskHandle_t HX711_task_handle = NULL;
 static long HX711_data = 0;
+static bool output_enable = false;
+static FILE* output_stream = NULL;
 
 void HX711_DO_isr(void *pvParameters){
     BaseType_t xHigherPriorityTaskWoken = pdFALSE;
@@ -33,23 +37,24 @@ void HX711_DO_isr(void *pvParameters){
 }
 
 esp_err_t HX711_init(){
-	gpio_config_t io_conf = {};
-	
-	//configure GPIO for CLK
-	io_conf.intr_type = GPIO_INTR_DISABLE;
-	io_conf.mode = GPIO_MODE_OUTPUT;
-	io_conf.pin_bit_mask = (1ULL << ADSK_GPIO);
-	io_conf.pull_down_en = 0;
-	io_conf.pull_up_en = 0;
-	ESP_RETURN_ON_ERROR(gpio_config(&io_conf), TAG, "configure GPIO failed for CLK");
-	
-	//configure GPIO for DO
-	io_conf.intr_type = GPIO_INTR_NEGEDGE;
-	io_conf.mode = GPIO_MODE_INPUT;
-	io_conf.pin_bit_mask = (1ULL << ADDO_GPIO);
-	io_conf.pull_down_en = 0;
-	io_conf.pull_up_en = 0;
-	ESP_RETURN_ON_ERROR(gpio_config(&io_conf), TAG, "configure GPIO failed for DO");
+    gpio_config_t io_conf = {};
+    
+    //configure GPIO for CLK
+    io_conf.intr_type = GPIO_INTR_DISABLE;
+    io_conf.mode = GPIO_MODE_OUTPUT;
+    io_conf.pin_bit_mask = (1ULL << ADSK_GPIO);
+    io_conf.pull_down_en = 0;
+    io_conf.pull_up_en = 0;
+    ESP_RETURN_ON_ERROR(gpio_config(&io_conf), TAG, "configure GPIO failed for CLK");
+    ESP_RETURN_ON_ERROR(gpio_set_drive_capability(ADSK_GPIO, GPIO_DRIVE_CAP_0), TAG, "setting GPIO driving capability failed for CLK");
+    
+    //configure GPIO for DO
+    io_conf.intr_type = GPIO_INTR_NEGEDGE;
+    io_conf.mode = GPIO_MODE_INPUT;
+    io_conf.pin_bit_mask = (1ULL << ADDO_GPIO);
+    io_conf.pull_down_en = 0;
+    io_conf.pull_up_en = 0;
+    ESP_RETURN_ON_ERROR(gpio_config(&io_conf), TAG, "configure GPIO failed for DO");
 
     //install callback service for all GPIOs
     esp_err_t err_code = gpio_install_isr_service(ESP_INTR_FLAG_LOWMED);
@@ -61,10 +66,13 @@ esp_err_t HX711_init(){
     }
 
     //install interrupt callback
-	ESP_RETURN_ON_ERROR(gpio_isr_handler_add(ADDO_GPIO, HX711_DO_isr, NULL), TAG, "configure GPIO failed for DO");
+    ESP_RETURN_ON_ERROR(gpio_isr_handler_add(ADDO_GPIO, HX711_DO_isr, NULL), TAG, "configure GPIO failed for DO");
 
     //set CLK=0
     gpio_set_level(ADSK_GPIO, 0);
+
+    //set output stream
+    output_stream = stdout;
 
     HX711_initialized = true;
     return ESP_OK;
@@ -74,31 +82,55 @@ long HX711_get_data(){
     return HX711_data;
 }
 
+void HX711_toggle_output(FILE* stream){
+    if (NULL != stream && NULL != output_stream && stream != output_stream)
+        HX711_enable_output(stream);
+    else if (output_enable)
+        HX711_disable_output();
+    else
+        HX711_enable_output(stream);
+}
+
+void HX711_enable_output(FILE* stream){
+    if (NULL != stream){
+        if (NULL != output_stream && stream != output_stream){
+            //redirect to another terminal
+            fprintf(output_stream, "%s: output redirected to another terminal\n", TAG);
+            fflush(output_stream);
+        }
+        output_stream = stream;
+    }
+    output_enable = true;
+}
+
+void HX711_disable_output(){
+    output_enable = false;
+}
+
 long HX711_read(int next_sense){
     long count;
     unsigned char i;
 
+    assert(next_sense >= 1 && next_sense <= 3);
+
     count = 0;
-    for (i = 0; i < 24; i++) {
+    //shift in data while setting transformation mode for next data
+    for (i = 0; i < 24+next_sense; i++) {
         gpio_set_level(ADSK_GPIO, 1);
         count = count << 1; 
         gpio_set_level(ADSK_GPIO, 0); 
-        if (gpio_get_level(ADDO_GPIO) == 1) 
-            count++;
+        count |= gpio_get_level(ADDO_GPIO) & 0x1;
     }
 
-    //setting transformation mode for next data
-    for (i = 0; i < next_sense; i++) {
-        gpio_set_level(ADSK_GPIO, 1);
-        gpio_set_level(ADSK_GPIO, 0);
-        //DO should be 1 at this time
+    //check input data at last 1~3 clocks
+    if (~count & ((0x1<<next_sense) - 1)) {
+        //DO should be 1 at the last few clocks
         //a constant 0 signal on DO may indicate no connection
-        if (gpio_get_level(ADDO_GPIO) == 0) 
-            count = HX711_READ_ERROR;
-    }
-
-    if (count == HX711_READ_ERROR)
+        count = HX711_READ_ERROR;
         return count;
+    }
+    //discard extra bits
+    count = count >> next_sense;
 
     //handle 2's compliment for 24 bit input
     if (count > 0x800000)
@@ -139,11 +171,15 @@ void HX711_task(void *pvParameters){
         //handling read error
         if (HX711_data == HX711_READ_ERROR) {
             ESP_LOGE(TAG, "Error Reading HX711 data");
-            //wait 5s for retry
+            //wait 10s for retry
             vTaskDelay(10000 / portTICK_PERIOD_MS);
+            HX711_reset();
             continue;
         }
-        printf("%s: %ld\n", TAG, HX711_data);
+        if (output_enable){
+            fprintf(output_stream, "(%"PRIu32") %s: %ld\n", esp_log_timestamp(), TAG, HX711_data);
+            fflush(output_stream);
+        }
         //delay 50 ms to prevent spamming output
         vTaskDelay(50 / portTICK_PERIOD_MS);
     }

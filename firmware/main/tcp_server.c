@@ -12,7 +12,6 @@
 #include <sys/param.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-//#include "freertos/message_buffer.h"
 #include "esp_system.h"
 #include "esp_wifi.h"
 #include "esp_event.h"
@@ -21,6 +20,7 @@
 #include "nvs_flash.h"
 #include "esp_netif.h"
 #include "errno.h"
+#include "assert.h"
 #include "string.h"
 #include "sys/unistd.h"
 
@@ -31,6 +31,7 @@
 
 #include "command.h"
 #include "tcp_server.h"
+#include "connection_dup.h"
 
 #define PORT                        CONFIG_PORT
 #define KEEPALIVE_IDLE              CONFIG_KEEPALIVE_IDLE
@@ -46,120 +47,67 @@ static const char *TAG = "server";
 static const UBaseType_t conn_notify_index = 1;
 static TaskHandle_t server_task_handle = NULL;
 
-/*
-static void do_retransmit(const int sock)
-{
-    int len;
-    char rx_buffer[BUFFSIZE];
-	size_t cmdlen = 0;
-	char cmdbuf[BUFFSIZE];
-
-	char c = 0;
-	bool escape = false;
-	bool overflow = false;
-
-    do {
-        len = recv(sock, rx_buffer, sizeof(rx_buffer) - 1, 0);
-        if (len < 0) {
-            ESP_LOGE(TAG, "Error occurred during receiving: errno %d", errno);
-        } else if (len == 0) {
-            ESP_LOGW(TAG, "Connection closed");
-        } else {
-            rx_buffer[len] = 0; // Null-terminate whatever is received and treat it like a string
-            //ESP_LOGI(TAG, "Received %d bytes: %s", len, rx_buffer);
-            ESP_LOGI(TAG, "Received %d bytes", len);
-
-			for (size_t i = 0; i < len; ++i){
-				c = rx_buffer[i];
-				if (escape) {
-					if (cmdlen >= BUFFSIZE-1){
-						if (!overflow){
-							overflow = true;
-							ESP_LOGW("stream", "Max command length %d exceeded", BUFFSIZE);
-						}
-					} else cmdbuf[cmdlen++] = c;
-					escape = false;
-				} else {
-					switch (c) {
-						case '\\':
-							escape = true;
-							break;
-						case '\n':
-							// send data to command processing task
-                            if (messageBuffer)
-                                xMessageBufferSend(messageBuffer, cmdbuf, cmdlen, portMAX_DELAY);
-							overflow = false;
-							cmdlen = 0;
-							break;
-						default:
-							if (cmdlen >= BUFFSIZE){
-								if (!overflow){
-									overflow = true;
-									ESP_LOGW("stream", "Max command length %d exceeded", BUFFSIZE);
-								}
-							} else cmdbuf[cmdlen++] = c;
-							break;
-					}
-				}
-			}
-
-
-            // send() can return less bytes than supplied length.
-            // Walk-around for robust implementation.
-			
-            //int to_write = len;
-            //while (to_write > 0) {
-            //    int written = send(sock, rx_buffer + (len - to_write), to_write, 0);
-            //    if (written < 0) {
-            //        ESP_LOGE(TAG, "Error occurred during sending: errno %d", errno);
-            //    }
-            //    to_write -= written;
-            //}
-			
-        }
-    } while (len > 0);
+static void give_semaphore(){
+    //xTaskNotifyGiveIndexed(server_task_handle, conn_notify_index);
+    uint32_t notify_value;
+    assert(NULL != server_task_handle);
+    ESP_LOGD(TAG, "Giving Semaphore...");
+    xTaskNotifyAndQueryIndexed(server_task_handle, conn_notify_index, 0, eIncrement, &notify_value);
+    ESP_LOGD(TAG, "Semaphore value: %lu", notify_value+1);
 }
-*/
 
 void cleanup_socket(command_parameter * para){
-    //shutdown(sock, 0);
-    if (para->stream_in == para->stream_out) {
+    assert(NULL != para->stream_in);
+    assert(NULL != para->stream_out);
+    //clearing write buffer
+    fflush(para->stream_out);
+    //shutdown socket
+    if (shutdown(fileno(para->stream_out), SHUT_RDWR) < 0) {
+        ESP_LOGE(TAG, "shutdown: %s", strerror(errno));
+    }
+    //clearing read buffer
+    while (EOF != fgetc(para->stream_in));
+    if (feof(para->stream_in)){
+        ESP_LOGE(TAG, "fgetc: %s", strerror(errno));
+    }
+    //closing socket stream & fd
+    if (para->stream_in != para->stream_out) {
         fclose(para->stream_in);
         fclose(para->stream_out);
-    } else
+    } else {
         fclose(para->stream_in);
+    }
+    //free parameter memory
     free(para);
     //connection ends, increasing semaphore
-    xTaskNotifyGiveIndexed(server_task_handle, conn_notify_index);
+    give_semaphore();
 }
 
 esp_err_t start_console(int sock){
     esp_err_t err = ESP_OK;
-
-    //int sock_copy = dup(sock);
-    //if (sock_copy < 0){
-    //    ESP_LOGE(TAG, "dup: %s", strerror(errno));
-    //    err = ESP_FAIL;
-    //    close(sock);
-    //    goto exit;
-    //}
+    int sock_dup = connection_dup(sock);
+    if (sock_dup < 0) {
+        ESP_LOGE(TAG, "connection_dup: %s", strerror(errno));
+        err = ESP_FAIL;
+        close(sock);
+        goto exit;
+    }
 
     //open stream for read and write
-    FILE* stream_in = fdopen(sock, "r+");
+    FILE* stream_in = fdopen(sock_dup, "r");
     if (NULL == stream_in){
         ESP_LOGE(TAG, "fdopen: %s", strerror(errno));
         err = ESP_FAIL;
         goto exit_cleanup1;
     }
-
-    FILE* stream_out = stream_in;
-    //FILE* stream_out = fdopen(sock_copy, "w");
-    //if (NULL == stream_out){
-    //    ESP_LOGE(TAG, "fdopen: %s", strerror(errno));
-    //    fclose(stream_in);
-    //    err = ESP_FAIL;
-    //    goto exit_cleanup1;
-    //}
+    FILE* stream_out = fdopen(sock, "w");
+    if (NULL == stream_out){
+        ESP_LOGE(TAG, "fdopen: %s", strerror(errno));
+        err = ESP_FAIL;
+        fclose(stream_in);
+        close(sock);
+        goto exit;
+    }
 
     command_parameter * para = malloc(sizeof(command_parameter));
     if (NULL == para){
@@ -173,6 +121,7 @@ esp_err_t start_console(int sock){
     para->at_exit = cleanup_socket;
 
     //create command task
+    ESP_LOGI(TAG, "starting console on webconsole");
     BaseType_t rtos_err = xTaskCreate(command_task, "webconsole", 4096, (void*)para, 5, NULL);
     if (pdPASS != rtos_err){
         ESP_LOGE(TAG, "xTaskCreate failed: Cannot allocate required memory");
@@ -184,15 +133,15 @@ esp_err_t start_console(int sock){
 exit_cleanup3:
     free(para);
 exit_cleanup2:
+    fclose(stream_out);
     fclose(stream_in);
-    //fclose(stream_out);
     goto exit;
 exit_cleanup1:
-    //close(sock_copy);
+    close(sock_dup);
     close(sock);
 exit:
     //creation of task failed, increasing semaphore
-    xTaskNotifyGiveIndexed(server_task_handle, conn_notify_index);
+    give_semaphore();
     return err;
 }
 
@@ -207,6 +156,13 @@ void tcp_server_task(void *pvParameters)
     int keepCount = KEEPALIVE_COUNT;
     struct sockaddr_storage dest_addr;
     server_task_handle = xTaskGetCurrentTaskHandle();
+    esp_err_t ret = ESP_OK;
+
+    if (!connection_dup_initialized())
+        if(ESP_OK != (ret = init_connection_dup())){
+            ESP_LOGE(TAG, "initialize connection fd duplicator failed: %s", esp_err_to_name(ret));
+            vTaskDelete(NULL);
+        }
 
     if (addr_family == AF_INET) {
         struct sockaddr_in *dest_addr_ip4 = (struct sockaddr_in *)&dest_addr;
@@ -227,7 +183,7 @@ void tcp_server_task(void *pvParameters)
 
     int listen_sock = socket(addr_family, SOCK_STREAM, ip_protocol);
     if (listen_sock < 0) {
-        ESP_LOGE(TAG, "Unable to create socket: errno %d", errno);
+        ESP_LOGE(TAG, "Unable to create socket: %s", strerror(errno));
         vTaskDelete(NULL);
         return;
     }
@@ -243,7 +199,7 @@ void tcp_server_task(void *pvParameters)
 
     int err = bind(listen_sock, (struct sockaddr *)&dest_addr, sizeof(dest_addr));
     if (err != 0) {
-        ESP_LOGE(TAG, "Socket unable to bind: errno %d", errno);
+        ESP_LOGE(TAG, "Socket unable to bind: %s", strerror(errno));
         ESP_LOGE(TAG, "IPPROTO: %d", addr_family);
         goto CLEAN_UP;
     }
@@ -251,7 +207,7 @@ void tcp_server_task(void *pvParameters)
 
     err = listen(listen_sock, 1);
     if (err != 0) {
-        ESP_LOGE(TAG, "Error occurred during listen: errno %d", errno);
+        ESP_LOGE(TAG, "Error occurred during listen: %s", strerror(errno));
         goto CLEAN_UP;
     }
 
@@ -259,21 +215,28 @@ void tcp_server_task(void *pvParameters)
     //to limit connection number to MAX_CONN
     xTaskNotifyIndexed(server_task_handle, conn_notify_index, MAX_CONN, eSetValueWithOverwrite);
 
+    uint32_t notify_value;
+
     while (1) {
+        //If we have maximal connections, wait for some other connection to
+        //close before accepting new connection.
+        //Decrease available connection number by 1 .
+        do {
+            //timeout after 60 seconds
+            notify_value = ulTaskNotifyTakeIndexed(conn_notify_index, pdFALSE, 60000 / portTICK_PERIOD_MS);
+            ESP_LOGD(TAG, "connection semaphore value: %ld", notify_value);
+            if (notify_value == 0)
+                ESP_LOGI(TAG, "Maximal connections established. Waiting for one to exit...");
+        } while (notify_value == 0);
+
         ESP_LOGI(TAG, "Socket listening");
 
         struct sockaddr_storage source_addr; // Large enough for both IPv4 or IPv6
         socklen_t addr_len = sizeof(source_addr);
 
-        //If we have maximal connections, wait for some other connection to
-        //close before accepting new connection.
-        //Decrease available connection number by 1 .
-        uint32_t notify_value = ulTaskNotifyTakeIndexed(conn_notify_index, pdFALSE, 5000 / portTICK_PERIOD_MS);
-        ESP_LOGI(TAG, "connection semaphore value: %ld", notify_value);
-
         int sock = accept(listen_sock, (struct sockaddr *)&source_addr, &addr_len);
         if (sock < 0) {
-            ESP_LOGE(TAG, "Unable to accept connection: errno %d", errno);
+            ESP_LOGE(TAG, "Unable to accept connection: %s", strerror(errno));
             break;
         }
 

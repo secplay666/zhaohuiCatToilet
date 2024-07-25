@@ -4,7 +4,6 @@
 #include "esp_netif.h"
 #include "esp_log.h"
 #include "lwip/sockets.h"
-#include "driver/gpio.h"
 
 #include "tcp_server.h"
 #include "TM1638_driver.h"
@@ -32,13 +31,11 @@ void app_main(void)
     ESP_ERROR_CHECK(esp_netif_init());
 
     // create message buffer
-	//messageBuffer = xMessageBufferCreate(COMMANDBUFFSIZE);
-	//if (NULL == messageBuffer){
-	//	ESP_LOGE(TAG, "Failed to create message buffer");
-	//	ESP_ERROR_CHECK(ESP_ERR_NO_MEM);
-	//}
-
-    gpio_dump_io_configuration(stdout, SOC_GPIO_VALID_GPIO_MASK);
+    //messageBuffer = xMessageBufferCreate(COMMANDBUFFSIZE);
+    //if (NULL == messageBuffer){
+    //  ESP_LOGE(TAG, "Failed to create message buffer");
+    //  ESP_ERROR_CHECK(ESP_ERR_NO_MEM);
+    //}
 
     // start wifi connection
     ESP_ERROR_CHECK(wifi_connect());
