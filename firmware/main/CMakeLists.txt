@@ -1,6 +1,7 @@
 idf_component_register(SRCS
     "main.c"
     "tcp_server.c"
+    "config.c"
     "connect.c"
     "connection_dup.c"
     "command.c"

@@ -16,6 +16,7 @@
 #include "hx711_driver.h"
 #include "motor.h"
 #include "command.h"
+#include "config.h"
 
 #define STR(x) #x
 #define M_STR(x) STR(x)

@@ -12,6 +12,7 @@
 #include "motor.h"
 #include "command.h"
 #include "connect.h"
+#include "config.h"
 
 static const char *TAG = "main";
 
@@ -22,12 +23,11 @@ void app_main(void)
 
     ESP_ERROR_CHECK(TM1638_init());
     ESP_ERROR_CHECK(DRV8871_init());
-    ESP_ERROR_CHECK(HX711_init());
 
     xTaskCreate(motor_task, "motor", 4096, NULL, 5, NULL);
     xTaskCreate(HX711_task, "weight", 4096, NULL, 5, NULL);
 
-    ESP_ERROR_CHECK(nvs_flash_init());
+    ESP_ERROR_CHECK(config_init());
     ESP_ERROR_CHECK(esp_netif_init());
 
     // create message buffer

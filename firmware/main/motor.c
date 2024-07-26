@@ -188,9 +188,10 @@ esp_err_t init_sensors(){
     io_conf.pin_bit_mask = (1ULL << BUTTON0) | (1ULL << BUTTON1) | (1ULL << BUTTON2) | (1ULL << BUTTON3);
     io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
     io_conf.pull_up_en = GPIO_PULLUP_ENABLE;
-    ESP_LOGI(TAG, "Setting up GPIO Buttons");
     ESP_RETURN_ON_ERROR(gpio_config(&io_conf), TAG, "configure GPIO failed for SENSORS");
-    ESP_LOGI(TAG, "Setting up GPIO Buttons Complete");
+
+    //first dump
+    gpio_dump_io_configuration(stdout, io_conf.pin_bit_mask);
 
     //install callback service for all GPIOs
     esp_err_t err_code = gpio_install_isr_service(ESP_INTR_FLAG_LOWMED);
@@ -207,6 +208,16 @@ esp_err_t init_sensors(){
     ESP_RETURN_ON_ERROR(gpio_isr_handler_add(BUTTON2, button_isr, (void*)BUTTON_PRESS_2), TAG, "configure GPIO failed for BUTTON2");
     ESP_RETURN_ON_ERROR(gpio_isr_handler_add(BUTTON3, button_isr, (void*)BUTTON_PRESS_3), TAG, "configure GPIO failed for BUTTON3");
 
+
+    //enable interrupt
+    gpio_intr_enable(BUTTON0);
+    gpio_intr_enable(BUTTON1);
+    gpio_intr_enable(BUTTON2);
+    gpio_intr_enable(BUTTON3);
+
+    //second dump
+    gpio_dump_io_configuration(stdout, io_conf.pin_bit_mask);
+
     return ESP_OK;
 }
 
@@ -217,6 +228,8 @@ motor_state_t process_actions(uint32_t notify_value){
 
     if (notify_value & ~M_MASK) {
         ESP_LOGI(TAG, "get action event: %04lx", notify_value & ~M_MASK);
+        //clearing command
+        ulTaskNotifyValueClearIndexed(motor_task_handle, notify_index, ~M_MASK);
     }
     if (ACT_STOP_ACTION & notify_value) {
         action_state = A_Stop;
@@ -228,11 +241,15 @@ motor_state_t process_actions(uint32_t notify_value){
             if (ACT_START_HOMING & notify_value) {
                 action_state = A_Homing_Rev;
                 next_state = M_Reverse;
+                ulTaskNotifyValueClearIndexed(motor_task_handle, notify_index, M_MASK);
+                xTaskNotifyIndexed(motor_task_handle, notify_index, M_Reverse, eSetBits);
             }
             if (ACT_START_CLEANING & notify_value) {
                 action_state = A_Cleaning_Fwd;
                 next_state = M_Forward;
                 cleaning_reverse_count = 0;
+                ulTaskNotifyValueClearIndexed(motor_task_handle, notify_index, M_MASK);
+                xTaskNotifyIndexed(motor_task_handle, notify_index, M_Forward, eSetBits);
             }
             break;
         case A_Homing_Rev:
@@ -240,10 +257,14 @@ motor_state_t process_actions(uint32_t notify_value){
             if (BUTTON_PRESS_0 & notify_value) {
                 action_state = A_Homing_Fwd;
                 next_state = M_Forward;
+                ulTaskNotifyValueClearIndexed(motor_task_handle, notify_index, M_MASK);
+                xTaskNotifyIndexed(motor_task_handle, notify_index, M_Forward, eSetBits);
             }
             if (BUTTON_PRESS_2 & notify_value) {
                 action_state = A_Homing_Fwd;
                 next_state = M_Forward;
+                ulTaskNotifyValueClearIndexed(motor_task_handle, notify_index, M_MASK);
+                xTaskNotifyIndexed(motor_task_handle, notify_index, M_Forward, eSetBits);
             }
             break;
         case A_Homing_Fwd:
@@ -258,10 +279,14 @@ motor_state_t process_actions(uint32_t notify_value){
             if (BUTTON_PRESS_1 & notify_value) {
                 action_state = A_Cleaning_Rev;
                 next_state = M_Reverse;
+                ulTaskNotifyValueClearIndexed(motor_task_handle, notify_index, M_MASK);
+                xTaskNotifyIndexed(motor_task_handle, notify_index, M_Reverse, eSetBits);
             }
             if (BUTTON_PRESS_3 & notify_value) {
                 action_state = A_Cleaning_Rev;
                 next_state = M_Reverse;
+                ulTaskNotifyValueClearIndexed(motor_task_handle, notify_index, M_MASK);
+                xTaskNotifyIndexed(motor_task_handle, notify_index, M_Reverse, eSetBits);
             }
             break;
         case A_Cleaning_Rev:
@@ -271,6 +296,8 @@ motor_state_t process_actions(uint32_t notify_value){
                 if (M_Reverse == motor_state && counter * PERIOD >= CLEANING_REVERSE_TIME_1) {
                     action_state = A_Cleaning_Fwd;
                     next_state = M_Forward;
+                    ulTaskNotifyValueClearIndexed(motor_task_handle, notify_index, M_MASK);
+                    xTaskNotifyIndexed(motor_task_handle, notify_index, M_Forward, eSetBits);
                     cleaning_reverse_count++;
                 }
             } else {
@@ -278,6 +305,8 @@ motor_state_t process_actions(uint32_t notify_value){
                 if (M_Reverse == motor_state && counter * PERIOD >= CLEANING_REVERSE_TIME_2) {
                     action_state = A_Cleaning_Fwd_2;
                     next_state = M_Forward;
+                    ulTaskNotifyValueClearIndexed(motor_task_handle, notify_index, M_MASK);
+                    xTaskNotifyIndexed(motor_task_handle, notify_index, M_Forward, eSetBits);
                     cleaning_reverse_count = 0;
                 }
             }
@@ -314,6 +343,7 @@ void motor_task(void *pvParameters)
 
     int speed;
     motor_state_t next_state;
+    static motor_state_t prev_motor_state = M_Idle;
 
     if(ESP_OK != (ret = init_sensors())){
         ESP_LOGE(TAG, "initialize limit switches and infrared sensors failed: %s", esp_err_to_name(ret));
@@ -505,6 +535,9 @@ void motor_task(void *pvParameters)
                 }
                 break;
         }
+        if (motor_state != prev_motor_state)
+            ESP_LOGI(TAG, "state: %s", motor_get_state_str());
+        prev_motor_state = motor_state;
 
     }
 
