@@ -13,7 +13,7 @@ static bool config_initialized = false;
 static const char * TAG = "config";
 
 //delete first item in list
-esp_err_t pop_item_list(config_item_t ** head_p){
+static esp_err_t pop_item_list(config_item_t ** head_p){
     config_item_t *p = *head_p;
     if (NVS_TYPE_STR  == p->info.type) free(p->str.p);
     if (NVS_TYPE_BLOB == p->info.type) free(p->blob.p);
@@ -23,7 +23,7 @@ esp_err_t pop_item_list(config_item_t ** head_p){
 }
 
 //delete all item list
-esp_err_t delete_item_list(config_item_t ** head_p, config_item_t ** tail_p){
+static esp_err_t delete_item_list(config_item_t ** head_p, config_item_t ** tail_p){
     while (*head_p){
         pop_item_list(head_p);
     }
@@ -32,7 +32,7 @@ esp_err_t delete_item_list(config_item_t ** head_p, config_item_t ** tail_p){
 }
 
 //fill in actual data for an item
-esp_err_t get_item_data(nvs_handle_t handle, config_item_t * item){
+static esp_err_t get_item_data(nvs_handle_t handle, config_item_t * item){
     esp_err_t ret = ESP_OK;
 
     switch (item->info.type){
@@ -94,7 +94,7 @@ fail:
 }
 
 // write an item to nvs storage
-esp_err_t write_item_to_nvs(nvs_handle_t handle, const config_item_t * item){
+static esp_err_t write_item_to_nvs(nvs_handle_t handle, const config_item_t * item){
     switch (item->info.type){
         case NVS_TYPE_U8:
             ESP_LOGI(TAG, "writing to key %s value %"PRIu8, item->info.key, item->u8);
@@ -138,7 +138,7 @@ esp_err_t write_item_to_nvs(nvs_handle_t handle, const config_item_t * item){
 }
 
 //fill in actual data for a list
-esp_err_t fill_item_data(config_item_t ** head_p){
+static esp_err_t fill_item_data(config_item_t ** head_p){
     esp_err_t ret = ESP_OK;
     bool done = false;
     config_item_t *ptr, *sample;
@@ -184,7 +184,7 @@ end:
 }
 
 // write all items in list to nvs storage
-esp_err_t write_list_to_nvs(config_item_t * list_head){
+static esp_err_t write_list_to_nvs(config_item_t * list_head){
     esp_err_t ret = ESP_OK;
     config_item_t *ptr = list_head, *sample = NULL;
     nvs_handle_t handle = 0;
@@ -231,7 +231,7 @@ end:
     return ret;
 }
 
-esp_err_t append_item_list(const nvs_iterator_t iter, config_item_t ** head_p, config_item_t ** tail_p){
+static esp_err_t append_item_list(const nvs_iterator_t iter, config_item_t ** head_p, config_item_t ** tail_p){
     esp_err_t ret = ESP_OK;
     if ((NULL == *tail_p && NULL != *head_p) || (NULL != *tail_p && NULL == *head_p)){
         ESP_LOGE(TAG, "Invalid list arguments");
@@ -344,5 +344,54 @@ esp_err_t config_init(){
 
 fail:
     nvs_flash_deinit();
+    return ret;
+}
+
+esp_err_t config_set_i32(const char *key, int32_t value){
+    ESP_RETURN_ON_FALSE(config_initialized, ESP_ERR_INVALID_STATE, TAG, "Nvs Config Uninitialized");
+    return nvs_set_i32(config_handle, key, value);
+}
+
+esp_err_t config_set_u32(const char *key, uint32_t value){
+    ESP_RETURN_ON_FALSE(config_initialized, ESP_ERR_INVALID_STATE, TAG, "Nvs Config Uninitialized");
+    return nvs_set_u32(config_handle, key, value);
+}
+
+esp_err_t config_set_str(const char *key, const char *value){
+    ESP_RETURN_ON_FALSE(config_initialized, ESP_ERR_INVALID_STATE, TAG, "Nvs Config Uninitialized");
+    return nvs_set_str(config_handle, key, value);
+}
+
+esp_err_t config_get_i32(const char *key, int32_t *out_value){
+    ESP_RETURN_ON_FALSE(config_initialized, ESP_ERR_INVALID_STATE, TAG, "Nvs Config Uninitialized");
+    return nvs_get_i32(config_handle, key, out_value);
+}
+
+esp_err_t config_get_u32(const char *key, uint32_t *out_value){
+    ESP_RETURN_ON_FALSE(config_initialized, ESP_ERR_INVALID_STATE, TAG, "Nvs Config Uninitialized");
+    return nvs_get_u32(config_handle, key, out_value);
+}
+
+esp_err_t config_get_str(const char* key, char* out_value, size_t *length){
+    ESP_RETURN_ON_FALSE(config_initialized, ESP_ERR_INVALID_STATE, TAG, "Nvs Config Uninitialized");
+    return nvs_get_str(config_handle, key, out_value, length);
+}
+
+esp_err_t config_get_str_with_default(const char* key, char* out_value, size_t *length, const char* default_value){
+    esp_err_t ret = ESP_OK;
+    ESP_RETURN_ON_FALSE(config_initialized, ESP_ERR_INVALID_STATE, TAG, "Nvs Config Uninitialized");
+    ret = nvs_get_str(config_handle, key, out_value, length);
+    if (ESP_ERR_NVS_NOT_FOUND == ret) {
+        if (NULL == out_value) {
+            *length = strlen(default_value)+1;
+            ret = ESP_OK;
+        } else {
+            if (*length <= 1)
+                return ESP_ERR_NVS_INVALID_LENGTH;
+            if (strlcpy(out_value, default_value, *length) >= *length)
+                return ESP_ERR_NVS_INVALID_LENGTH;
+            ret = ESP_OK;
+        }
+    }
     return ret;
 }

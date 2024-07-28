@@ -34,11 +34,15 @@ extern config_t config;
 esp_err_t config_init();
 esp_err_t config_garbage_collect();
 
-esp_err_t set_config();
-esp_err_t get_config();
-esp_err_t get_config_with_default();
+esp_err_t config_set_i32(const char *key, int32_t value);
+esp_err_t config_set_u32(const char *key, uint32_t value);
+esp_err_t config_set_str(const char *key, const char *value);
+esp_err_t config_get_i32(const char *key, int32_t *out_value);
+esp_err_t config_get_u32(const char *key, uint32_t *out_value);
+esp_err_t config_get_str(const char *key, char *out_value, size_t *length);
+esp_err_t config_get_str_with_default(const char* key, char* out_value, size_t *length, const char* default_value);
 
-esp_err_t del_config();
+//esp_err_t del_config();
 
 extern const char * config_namespace;
 

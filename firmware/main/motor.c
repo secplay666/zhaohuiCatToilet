@@ -215,6 +215,12 @@ esp_err_t init_sensors(){
     gpio_intr_enable(BUTTON2);
     gpio_intr_enable(BUTTON3);
 
+    //enable pullup
+    gpio_set_pull_mode(BUTTON0, GPIO_PULLUP_ONLY);
+    gpio_set_pull_mode(BUTTON1, GPIO_PULLUP_ONLY);
+    gpio_set_pull_mode(BUTTON2, GPIO_PULLUP_ONLY);
+    gpio_set_pull_mode(BUTTON3, GPIO_PULLUP_ONLY);
+
     //second dump
     gpio_dump_io_configuration(stdout, io_conf.pin_bit_mask);
 

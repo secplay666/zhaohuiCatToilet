@@ -4,6 +4,8 @@
 #include "esp_err.h"
 #include "esp_event.h"
 
+#include "config.h"
+
 static const char *TAG = "connect";
 
 /* FreeRTOS event group to signal when we are connected*/
@@ -41,12 +43,19 @@ static void event_handler(void* arg, esp_event_base_t event_base,
 esp_err_t wifi_sta_do_connect() {
     wifi_config_t wifi_config = {
         .sta = {
-            .ssid = CONFIG_WIFI_SSID, 
-            .password = CONFIG_WIFI_PASSWORD, 
+            //.ssid = CONFIG_WIFI_SSID, 
+            //.password = CONFIG_WIFI_PASSWORD, 
             //.threshold.rssi = -127, 
             .threshold.authmode = WIFI_AUTH_WPA2_PSK, 
         },
     };
+
+    // get config ssid and password
+    size_t ssid_len = 32;
+    size_t password_len = 64;
+    ESP_RETURN_ON_ERROR(config_get_str_with_default("wifi_ssid", (char *)wifi_config.sta.ssid, &ssid_len, CONFIG_WIFI_SSID), TAG, "get_config for wifi_ssid failed");
+    ESP_RETURN_ON_ERROR(config_get_str_with_default("wifi_password", (char *)wifi_config.sta.password, &password_len, CONFIG_WIFI_PASSWORD), TAG, "get_config for wifi_ssid failed");
+
 
     // set station mode
     ESP_RETURN_ON_ERROR(esp_wifi_set_mode(WIFI_MODE_STA), TAG, "esp_wifi_set_mode failed");
