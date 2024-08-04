@@ -78,11 +78,13 @@ esp_err_t wifi_sta_do_connect() {
     /* xEventGroupWaitBits() returns the bits before the call returned, hence we can test which event actually
      * happened. */
     if (bits & WIFI_CONNECTED_BIT) {
-        ESP_LOGI(TAG, "connected to ap SSID:%s password:%s",
-                 wifi_config.sta.ssid, wifi_config.sta.password);
+        ESP_LOGI(TAG, "connected to ap SSID:%s", wifi_config.sta.ssid);
+        //ESP_LOGI(TAG, "connected to ap SSID:%s password:%s",
+        //         wifi_config.sta.ssid, wifi_config.sta.password);
     } else if (bits & WIFI_FAIL_BIT) {
-        ESP_LOGI(TAG, "Failed to connect to SSID:%s, password:%s",
-                 wifi_config.sta.ssid, wifi_config.sta.password);
+        ESP_LOGI(TAG, "Failed to connect to SSID:%s", wifi_config.sta.ssid);
+        //ESP_LOGI(TAG, "Failed to connect to SSID:%s, password:%s",
+        //         wifi_config.sta.ssid, wifi_config.sta.password);
     } else {
         ESP_LOGE(TAG, "UNEXPECTED EVENT");
     }

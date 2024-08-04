@@ -6,8 +6,10 @@
 #include "linenoise/linenoise.h"
 #include "esp_log.h"
 #include "esp_err.h"
+#include "esp_check.h"
 #include "esp_heap_caps.h"
 #include "stdio.h"
+#include "inttypes.h"
 #include "errno.h"
 #include "string.h"
 
@@ -53,7 +55,6 @@ static const char *greetings = "This is " PROJECT_NAME " commandline interface, 
 
 static const char *helpstr = "Commands:\n"
 CMD_LIST_GEN(GEN_HELP_STR)
-"q      exit console\n"
 "\n";
 
 //hold old vprintf function for log
@@ -165,11 +166,11 @@ static void cmd_motor_ctrl(const char* cmd){
     }
 }
 
-static esp_err_t parse_key(const char* cmd, char* key, size_t len){
+static esp_err_t parse_key(const char* cmd, char* key, size_t len, const char **out_ptr){
     const char *p = cmd;
     char *q = key;
     while(*p == ' ' || *p == '\t') p++;
-    while(*p == ' ' || *p == '\t' || *p == '\n' || *p == '\0'){
+    while(*p != ' ' && *p != '\t' && *p != '\n' && *p != '\0'){
         if (q <= key+len-1) *q++ = *p++;
         else {
             *q = '\0';
@@ -177,49 +178,177 @@ static esp_err_t parse_key(const char* cmd, char* key, size_t len){
         }
     }
     *q = '\0';
+    if (NULL != out_ptr){
+        while(*p == ' ' || *p == '\t') p++;
+        *out_ptr = p;
+    }
     return ESP_OK;
+}
+
+static esp_err_t parse_hex_bytes(const char *buffer, uint8_t *data_ptr, size_t *length){
+    const char *p = buffer;
+    uint8_t data = 0;
+    size_t len = 0;
+    bool parse_data = (NULL != data_ptr);
+    while(*p != '\n' && *p != '\0' && (!parse_data || len < *length)){
+        //skip all spaces
+        while(*p == ' ' || *p == '\t') p++;
+        //first nibble
+        data = 0;
+        if ('0' <= *p && *p <= '9') {
+            if (parse_data){
+                data = (*p)-'0';
+            }
+        } else if ('A' <= *p && *p <= 'Z'){
+            if (parse_data){
+                data = (*p)-'A'+10;
+            }
+        } else if ('a' <= *p && *p <= 'z'){
+            if (parse_data){
+                data = (*p)-'a'+10;
+            }
+        } else {
+            printf("Error: %s: %s %d", TAG, "error parsing blob data at position", p-buffer);
+            return ESP_ERR_INVALID_ARG;
+        }
+
+        //second nibble
+        p++;
+        data <<= 4;
+        if ('0' <= *p && *p <= '9') {
+            if (parse_data){
+                data |= (*p)-'0';
+            }
+        } else if ('A' <= *p && *p <= 'Z'){
+            if (parse_data){
+                data |= (*p)-'A'+10;
+            }
+        } else if ('a' <= *p && *p <= 'z'){
+            if (parse_data){
+                data |= (*p)-'a'+10;
+            }
+        } else {
+            printf("Error: %s: %s %d", TAG, "error parsing blob data at position", p-buffer);
+            return ESP_ERR_INVALID_ARG;
+        }
+
+        if (parse_data){
+            data_ptr[len++] = data;
+        }
+
+        //next byte
+        p++;
+    }
+    if (parse_data) *length = len;
+    return ESP_OK;
+}
+
+static esp_err_t list_config_keys(){
+    nvs_iterator_t iter;
+    config_item_t item;
+    esp_err_t ret = ESP_OK;
+    int count = 0;
+
+    ret = config_entry_find(NVS_TYPE_ANY, &iter);
+    while (ESP_OK == ret) {
+        ESP_GOTO_ON_ERROR(config_get_item(&iter, &item), finish, TAG, "error getting config data");
+        count++;
+        config_print_item(&item);
+        //manually free some memory
+        if (NVS_TYPE_STR  == item.info.type) free(item.str.p);
+        if (NVS_TYPE_BLOB == item.info.type) free(item.blob.p);
+        ret = nvs_entry_next(&iter);
+    }
+    if (ESP_ERR_NVS_NOT_FOUND == ret) {
+        printf("total %d entries\n", count);
+        ret = ESP_OK;
+    } else {
+        printf("Error: %s: %s", TAG, "error finding config entry");
+    }
+finish:
+    nvs_release_iterator(iter);
+    return ret;
 }
 
 static void cmd_get_config(const char* cmd){
     assert (cmd[0] == 'g');
-    const char* get_config_helpstr = "usage: g[?lsiuxb] get config\n"
-        "gl      \t\tlist all config keys\n"
-        "gi <key>\t\tget integer value with key <key>\n"
-        "gu <key>\t\tget unsigned integer value with key <key>\n"
-        "gx <key>\t\tget hexadecimal value with key <key>\n"
-        "gs <key>\t\tget string value with key <key>\n"
+    const char *get_config_helpstr = "usage: g[?lsiuxb] get config\n"
+        "gl      \tlist all config keys\n"
+        "gi <key>\tget integer value with key <key>\n"
+        "gu <key>\tget unsigned integer value with key <key>\n"
+        "gx <key>\tget hexadecimal value with key <key>\n"
+        "gs <key>\tget string value with key <key>\n"
+        "gb <key>\tget blob value with key <key>\n"
         ;
-    const char* p = cmd+1;
+    const char *p = cmd+1;
+    char *data_ptr = NULL;
     char key[NVS_KEY_NAME_MAX_SIZE];
     esp_err_t ret = ESP_OK;
-    union {int32_t i32;uint32_t u32;size_t sz;} value;
+    union {int32_t i32;uint32_t u32;size_t sz;} value = {0};
     switch (*p){
         case 'l':
-            //TODO
+            ret = list_config_keys();
+            if (ESP_OK != ret) break;
             break;
         case 'i':
-            ret = parse_key(p+1, key, sizeof(key));
+            ret = parse_key(p+1, key, sizeof(key), NULL);
             if (ESP_OK != ret) break;
             ret = config_get_i32(key, &value.i32);
             if (ESP_OK != ret) break;
-            printf("key: %s, value:%"PRIi32"\n", key, value.i32);
+            printf("key: %s, value: %"PRIi32"\n", key, value.i32);
             break;
         case 'u':
-            ret = parse_key(p+1, key, sizeof(key));
+            ret = parse_key(p+1, key, sizeof(key), NULL);
             if (ESP_OK != ret) break;
             ret = config_get_u32(key, &value.u32);
             if (ESP_OK != ret) break;
-            printf("key: %s, value:%"PRIu32"\n", key, value.u32);
+            printf("key: %s, value: %"PRIu32"\n", key, value.u32);
             break;
         case 'x':
-            ret = parse_key(p+1, key, sizeof(key));
+            ret = parse_key(p+1, key, sizeof(key), NULL);
             if (ESP_OK != ret) break;
             ret = config_get_u32(key, &value.u32);
             if (ESP_OK != ret) break;
-            printf("key: %s, value:%"PRIx32"\n", key, value.u32);
+            printf("key: %s, value: %"PRIx32"\n", key, value.u32);
             break;
         case 's':
-            //TODO
+            ret = parse_key(p+1, key, sizeof(key), NULL);
+            if (ESP_OK != ret) break;
+            ret = config_get_str(key, NULL, &value.sz);
+            if (ESP_OK != ret) break;
+            data_ptr = calloc(1, value.sz);
+            if (NULL == data_ptr) {
+                ret = ESP_ERR_NO_MEM;
+                break;
+            }
+            ret = config_get_str(key, data_ptr, &value.sz);
+            if (ESP_OK != ret) {
+                free(data_ptr);
+                break;
+            }
+            printf("key: %s, value: %s\n", key, data_ptr);
+            free(data_ptr);
+            break;
+        case 'b':
+            ret = parse_key(p+1, key, sizeof(key), NULL);
+            if (ESP_OK != ret) break;
+            ret = config_get_blob(key, NULL, &value.sz);
+            if (ESP_OK != ret) break;
+            data_ptr = calloc(1, value.sz);
+            if (NULL == data_ptr) {
+                ret = ESP_ERR_NO_MEM;
+                break;
+            }
+            ret = config_get_blob(key, data_ptr, &value.sz);
+            if (ESP_OK != ret) {
+                free(data_ptr);
+                break;
+            }
+            printf("key: %s, value: ", key);
+            for (size_t i = 0; i < value.sz; ++i)
+                printf("%02"PRIX8, ((uint8_t *)data_ptr)[i]);
+            printf("\n");
+            free(data_ptr);
             break;
         case '\0':
         case '\n':
@@ -235,8 +364,90 @@ static void cmd_get_config(const char* cmd){
 
 void cmd_set_config(const char* cmd){
     assert (cmd[0] == 's');
-    const char* p = cmd+1;
-    //TODO
+    const char *set_config_helpstr = "usage: s[?lsiuxb] set config\n"
+        "si <key>\tset integer value with key <key>\n"
+        "su <key>\tset unsigned integer value with key <key>\n"
+        "sx <key>\tset hexadecimal value with key <key>\n"
+        "ss <key>\tset string value with key <key>\n"
+        "sb <key>\tset blob value with key <key>\n"
+        "sd <key>\tdelete value with key <key>\n"
+        ;
+    const char *p = cmd+1, *q = NULL;
+    uint8_t *data_ptr = NULL;
+    char key[NVS_KEY_NAME_MAX_SIZE];
+    esp_err_t ret = ESP_OK;
+    union {int32_t i32;uint32_t u32;size_t sz;} value = {0};
+    switch (*p){
+        case 'i':
+            ret = parse_key(p+1, key, sizeof(key), &q);
+            if (ESP_OK != ret) break;
+            sscanf(q, "%"SCNi32, &value.i32);
+            ret = config_set_i32(key, value.i32);
+            if (ESP_OK != ret) break;
+            printf("key: %s, value: %"PRIi32"\n", key, value.i32);
+            break;
+        case 'u':
+            ret = parse_key(p+1, key, sizeof(key), &q);
+            if (ESP_OK != ret) break;
+            sscanf(q, "%"SCNu32, &value.u32);
+            ret = config_set_u32(key, value.u32);
+            if (ESP_OK != ret) break;
+            printf("key: %s, value: %"PRIu32"\n", key, value.u32);
+            break;
+        case 'x':
+            ret = parse_key(p+1, key, sizeof(key), &q);
+            if (ESP_OK != ret) break;
+            sscanf(q, "%"SCNx32, &value.u32);
+            ret = config_set_u32(key, value.u32);
+            if (ESP_OK != ret) break;
+            printf("key: %s, value: %"PRIx32"\n", key, value.u32);
+            break;
+        case 's':
+            ret = parse_key(p+1, key, sizeof(key), &q);
+            if (ESP_OK != ret) break;
+            ret = config_set_str(key, q);
+            if (ESP_OK != ret) break;
+            printf("key: %s, value: %s\n", key, q);
+            break;
+        case 'b':
+            ret = parse_key(p+1, key, sizeof(key), &q);
+            if (ESP_OK != ret) break;
+            ret = parse_hex_bytes(q, NULL, &value.sz);
+            if (ESP_OK != ret) break;
+            data_ptr = calloc(1, value.sz);
+            if (NULL == data_ptr) {
+                ret = ESP_ERR_NO_MEM;
+                break;
+            }
+            ret = parse_hex_bytes(q, data_ptr, &value.sz);
+            if (ESP_OK != ret) break;
+            ret = config_set_blob(key, data_ptr, value.sz);
+            if (ESP_OK != ret) {
+                free(data_ptr);
+                break;
+            }
+            printf("key: %s, value: ", key);
+            for (size_t i = 0; i < value.sz; ++i)
+                printf("%02"PRIX8, ((uint8_t *)data_ptr)[i]);
+            printf("\n");
+            free(data_ptr);
+            break;
+        case 'd':
+            ret = parse_key(p+1, key, sizeof(key), &q);
+            if (ESP_OK != ret) break;
+            ret = config_erase_key(key);
+            if (ESP_OK != ret) break;
+            break;
+        case '\0':
+        case '\n':
+        case '?':
+        default:
+            printf(set_config_helpstr);
+            break;
+    }
+    if (ESP_OK != ret){
+        printf("Error executing command %s:%s\n", cmd, esp_err_to_name(ret));
+    }
 }
 
 inline void cmd_quit(bool* quit){

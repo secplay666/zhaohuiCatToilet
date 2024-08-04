@@ -1,4 +1,5 @@
-#include <string.h>
+#include "string.h"
+#include "inttypes.h"
 #include "esp_err.h"
 #include "esp_check.h"
 #include "nvs.h"
@@ -93,11 +94,77 @@ fail:
     return ret;
 }
 
+esp_err_t config_get_item(nvs_iterator_t *iter, config_item_t *item){
+    if (NULL == iter){
+        ESP_LOGE(TAG, "Invalid iterator");
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (NULL == item){
+        ESP_LOGE(TAG, "Invalid item pointer");
+        return ESP_ERR_INVALID_ARG;
+    }
+    //fill in item info
+    ESP_RETURN_ON_ERROR(nvs_entry_info(*iter, &(item->info)),
+            TAG, "nvs_entry_info failed");
+
+    //fill in data
+    ESP_RETURN_ON_ERROR(get_item_data(config_handle, item),
+            TAG, "get_item_data failed");
+
+    return ESP_OK;
+}
+
+esp_err_t config_print_item(config_item_t *item){
+    if (NULL == item){
+        ESP_LOGE(TAG, "Invalid item pointer");
+        return ESP_ERR_INVALID_ARG;
+    }
+    printf("%s = ", item->info.key);
+    switch (item->info.type){
+        case NVS_TYPE_U8:
+            printf("%" PRIu8 "\n", item->u8);
+            break;
+        case NVS_TYPE_I8:
+            printf("%" PRIi8 "\n", item->i8);
+            break;
+        case NVS_TYPE_U16:
+            printf("%" PRIu16 "\n", item->u16);
+            break;
+        case NVS_TYPE_I16:
+            printf("%" PRIi16 "\n", item->i16);
+            break;
+        case NVS_TYPE_U32:
+            printf("%" PRIu32 "\n", item->u32);
+            break;
+        case NVS_TYPE_I32:
+            printf("%" PRIi32 "\n", item->i32);
+            break;
+        case NVS_TYPE_U64:
+            printf("%" PRIu64 "\n", item->u64);
+            break;
+        case NVS_TYPE_I64:
+            printf("%" PRIi64 "\n", item->i64);
+            break;
+        case NVS_TYPE_STR:
+            printf("%s\n", item->str.p);
+            break;
+        case NVS_TYPE_BLOB:
+            for (size_t i = 0; i < item->blob.len; ++i)
+                printf("%02"PRIX8, ((uint8_t *)item->blob.p)[i]);
+            printf("\n");
+            break;
+        default:
+            //should not happen
+            return ESP_ERR_INVALID_STATE;
+            break;
+    }
+    return ESP_OK;
+}
+
 // write an item to nvs storage
 static esp_err_t write_item_to_nvs(nvs_handle_t handle, const config_item_t * item){
     switch (item->info.type){
         case NVS_TYPE_U8:
-            ESP_LOGI(TAG, "writing to key %s value %"PRIu8, item->info.key, item->u8);
             ESP_RETURN_ON_ERROR(nvs_set_u8(handle, item->info.key, item->u8), TAG, "nvs_set_u8 failed");
             break;
         case NVS_TYPE_I8:
@@ -290,7 +357,7 @@ esp_err_t config_garbage_collect(){
 
     //populate item data
     ESP_GOTO_ON_ERROR(fill_item_data(&list_head),
-            fail, TAG, "get_item_data failed");
+            fail, TAG, "fill_item_data failed");
 
     //erase partition, will deinitialize nvs_flash partition
     ESP_LOGI(TAG, "Erase nvs partition..");
@@ -349,17 +416,32 @@ fail:
 
 esp_err_t config_set_i32(const char *key, int32_t value){
     ESP_RETURN_ON_FALSE(config_initialized, ESP_ERR_INVALID_STATE, TAG, "Nvs Config Uninitialized");
-    return nvs_set_i32(config_handle, key, value);
+    ESP_RETURN_ON_ERROR(nvs_set_i32(config_handle, key, value), TAG, "nvs_set_i32 failed");
+    return nvs_commit(config_handle);
 }
 
 esp_err_t config_set_u32(const char *key, uint32_t value){
     ESP_RETURN_ON_FALSE(config_initialized, ESP_ERR_INVALID_STATE, TAG, "Nvs Config Uninitialized");
-    return nvs_set_u32(config_handle, key, value);
+    ESP_RETURN_ON_ERROR(nvs_set_u32(config_handle, key, value), TAG, "nvs_set_u32 failed");
+    return nvs_commit(config_handle);
 }
 
 esp_err_t config_set_str(const char *key, const char *value){
     ESP_RETURN_ON_FALSE(config_initialized, ESP_ERR_INVALID_STATE, TAG, "Nvs Config Uninitialized");
-    return nvs_set_str(config_handle, key, value);
+    ESP_RETURN_ON_ERROR(nvs_set_str(config_handle, key, value), TAG, "nvs_set_str failed");
+    return nvs_commit(config_handle);
+}
+
+esp_err_t config_set_blob(const char *key, const void *value, size_t length){
+    ESP_RETURN_ON_FALSE(config_initialized, ESP_ERR_INVALID_STATE, TAG, "Nvs Config Uninitialized");
+    ESP_RETURN_ON_ERROR(nvs_set_blob(config_handle, key, value, length), TAG, "nvs_set_blob failed");
+    return nvs_commit(config_handle);
+}
+
+esp_err_t config_erase_key(const char *key){
+    ESP_RETURN_ON_FALSE(config_initialized, ESP_ERR_INVALID_STATE, TAG, "Nvs Config Uninitialized");
+    ESP_RETURN_ON_ERROR(nvs_erase_key(config_handle, key), TAG, "nvs_erase_key failed");
+    return nvs_commit(config_handle);
 }
 
 esp_err_t config_get_i32(const char *key, int32_t *out_value){
@@ -375,6 +457,11 @@ esp_err_t config_get_u32(const char *key, uint32_t *out_value){
 esp_err_t config_get_str(const char* key, char* out_value, size_t *length){
     ESP_RETURN_ON_FALSE(config_initialized, ESP_ERR_INVALID_STATE, TAG, "Nvs Config Uninitialized");
     return nvs_get_str(config_handle, key, out_value, length);
+}
+
+esp_err_t config_get_blob(const char* key, void* out_value, size_t *length){
+    ESP_RETURN_ON_FALSE(config_initialized, ESP_ERR_INVALID_STATE, TAG, "Nvs Config Uninitialized");
+    return nvs_get_blob(config_handle, key, out_value, length);
 }
 
 esp_err_t config_get_str_with_default(const char* key, char* out_value, size_t *length, const char* default_value){
@@ -395,3 +482,9 @@ esp_err_t config_get_str_with_default(const char* key, char* out_value, size_t *
     }
     return ret;
 }
+
+esp_err_t config_entry_find(nvs_type_t type, nvs_iterator_t *output_iterator){
+    ESP_RETURN_ON_FALSE(config_initialized, ESP_ERR_INVALID_STATE, TAG, "Nvs Config Uninitialized");
+    return nvs_entry_find_in_handle(config_handle, type, output_iterator);
+}
+

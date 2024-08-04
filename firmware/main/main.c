@@ -29,14 +29,11 @@ void app_main(void)
     xTaskCreate(motor_task, "motor", 4096, NULL, 5, NULL);
     xTaskCreate(HX711_task, "weight", 4096, NULL, 5, NULL);
 
-    ESP_ERROR_CHECK(esp_netif_init());
+    // start UART console
+    xTaskCreate(command_task, "command", 4096, NULL, 5, NULL);
 
-    // create message buffer
-    //messageBuffer = xMessageBufferCreate(COMMANDBUFFSIZE);
-    //if (NULL == messageBuffer){
-    //  ESP_LOGE(TAG, "Failed to create message buffer");
-    //  ESP_ERROR_CHECK(ESP_ERR_NO_MEM);
-    //}
+    // start ip layer
+    ESP_ERROR_CHECK(esp_netif_init());
 
     // start wifi connection
     ESP_ERROR_CHECK(wifi_connect());
@@ -48,8 +45,6 @@ void app_main(void)
     xTaskCreate(tcp_server_task, "tcp_server", 4096, (void*)AF_INET6, 5, NULL);
 #endif
 
-    // start UART console
-    xTaskCreate(command_task, "command", 4096, NULL, 5, NULL);
-
     ESP_ERROR_CHECK(motor_auto_process());
+
 }
