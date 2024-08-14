@@ -4,6 +4,7 @@
 #include "esp_err.h"
 #include "esp_check.h"
 #include "motor.h"
+#include "config.h"
 #include "drv8871_driver.h"
 #include "TM1638_driver.h"
 
@@ -36,16 +37,16 @@ static const char *TAG = "motor";
 
 const int PERIOD = 100;
 const TickType_t xPeriod = PERIOD / portTICK_PERIOD_MS;
-const int BRAKE_TIME = 1000;
-const int START_TIME = 2000;
-const int HOMING_FORWARD_TIME = 5*1000;
-const int CLEANING_REVERSE_TIME_1 = 5*1000; //retry dumping
-const int CLEANING_REVERSE_TIME_2 = 15*1000; //return to normal
-const int CLEANING_FORWARD_TIME = 2*1000; //forward a little to level the catsand
-const int CLEANING_RETRY_NUM = 1; // retry 1 time(s) after first dumping attempt
+static int32_t BRAKE_TIME = 1000;
+static int32_t START_TIME = 2000;
+static int32_t HOMING_FORWARD_TIME = 5*1000;
+static int32_t CLEANING_REVERSE_TIME_1 = 5*1000; //retry dumping
+static int32_t CLEANING_REVERSE_TIME_2 = 15*1000; //return to normal
+static int32_t CLEANING_FORWARD_TIME = 2*1000; //forward a little to level the catsand
+static int32_t CLEANING_RETRY_NUM = 1; // retry 1 time(s) after first dumping attempt
 
 // speed range from 0 to 100
-static int max_speed = 50;
+static int32_t max_speed = 50;
 const int SPEED_STEP = 5;
 
 const char * const state_string[]={
@@ -79,19 +80,21 @@ int motor_get_speed(){
 esp_err_t motor_auto_process(){
     motor_auto = true;
     //motor_auto_count = 0;
-    for (int i=0; i < 10; i++) {
-        if (!motor_auto) break;
-        motor_forward();
-        vTaskDelay(5000 / portTICK_PERIOD_MS);
-        motor_coast();
-        vTaskDelay(1000 / portTICK_PERIOD_MS);
-        if (!motor_auto) break;
-        motor_reverse();
-        vTaskDelay(5000 / portTICK_PERIOD_MS);
-        motor_coast();
-        vTaskDelay(1000 / portTICK_PERIOD_MS);
-    }
-    return ESP_OK;
+    //for (int i=0; i < 10; i++) {
+    //    if (!motor_auto) break;
+    //    motor_forward();
+    //    vTaskDelay(5000 / portTICK_PERIOD_MS);
+    //    motor_coast();
+    //    vTaskDelay(1000 / portTICK_PERIOD_MS);
+    //    if (!motor_auto) break;
+    //    motor_reverse();
+    //    vTaskDelay(5000 / portTICK_PERIOD_MS);
+    //    motor_coast();
+    //    vTaskDelay(1000 / portTICK_PERIOD_MS);
+    //}
+    return motor_start_homing();
+
+    //return ESP_OK;
 }
 
 esp_err_t motor_auto_stop(){
@@ -308,7 +311,8 @@ motor_state_t process_actions(uint32_t notify_value){
                 }
             } else {
                 //reverse for a predefined period of time
-                if (M_Reverse == motor_state && counter * PERIOD >= CLEANING_REVERSE_TIME_2) {
+                if ((M_Reverse == motor_state && counter * PERIOD >= CLEANING_REVERSE_TIME_2)
+                        || ((BUTTON_PRESS_0 | BUTTON_PRESS_2) & notify_value)){
                     action_state = A_Cleaning_Fwd_2;
                     next_state = M_Forward;
                     ulTaskNotifyValueClearIndexed(motor_task_handle, notify_index, M_MASK);
@@ -341,6 +345,25 @@ bool motor_is_busy(){
     return A_Idle != action_state;
 }
 
+static esp_err_t motor_get_config(){
+    esp_err_t ret = ESP_OK;
+    if (ESP_OK != (ret = config_get_i32_with_default("mtr_speed", &max_speed, 50))) return ret;
+    LOG_CONFIG_VALUE(max_speed);
+    if (ESP_OK != (ret = config_get_i32_with_default("mtr_brake_time", &BRAKE_TIME, 1000))) return ret;
+    LOG_CONFIG_VALUE(BRAKE_TIME);
+    if (ESP_OK != (ret = config_get_i32_with_default("mtr_start_time", &START_TIME, 2000))) return ret;
+    LOG_CONFIG_VALUE(START_TIME);
+    if (ESP_OK != (ret = config_get_i32_with_default("mtr_hom_t", &HOMING_FORWARD_TIME, 5*1000))) return ret;
+    LOG_CONFIG_VALUE(HOMING_FORWARD_TIME);
+    if (ESP_OK != (ret = config_get_i32_with_default("mtr_cln_t1", &CLEANING_REVERSE_TIME_1, 5*1000))) return ret;
+    LOG_CONFIG_VALUE(CLEANING_REVERSE_TIME_1);
+    if (ESP_OK != (ret = config_get_i32_with_default("mtr_cln_t2", &CLEANING_REVERSE_TIME_2, 15*1000))) return ret;
+    LOG_CONFIG_VALUE(CLEANING_REVERSE_TIME_2);
+    if (ESP_OK != (ret = config_get_i32_with_default("mtr_cln_retry", &CLEANING_RETRY_NUM, 1))) return ret;
+    LOG_CONFIG_VALUE(CLEANING_RETRY_NUM);
+    return ESP_OK;
+}
+
 void motor_task(void *pvParameters)
 {
     TickType_t xLastWakeTime = xTaskGetTickCount();
@@ -350,6 +373,9 @@ void motor_task(void *pvParameters)
     int speed;
     motor_state_t next_state;
     static motor_state_t prev_motor_state = M_Idle;
+    
+    ret = motor_get_config();
+    if (ESP_OK != ret) ESP_LOGW(TAG, "get_config failed for motor: %s", esp_err_to_name(ret));
 
     if(ESP_OK != (ret = init_sensors())){
         ESP_LOGE(TAG, "initialize limit switches and infrared sensors failed: %s", esp_err_to_name(ret));

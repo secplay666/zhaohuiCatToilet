@@ -36,8 +36,8 @@
     FUNC('r', "r", motor_start_homing, , "start homing") \
     FUNC('t', "t", motor_stop_action, , "stop motor action") \
     FUNC('p', "p", print_status, , "print status") \
-    FUNC('+', "+", cmd_motor_speed_up, , "speedup motor") \
-    FUNC('-', "-", cmd_motor_speed_down, , "speeddown motor") \
+    FUNC('+', "+", cmd_motor_speed_up, , "speed up motor") \
+    FUNC('-', "-", cmd_motor_speed_down, , "speed down motor") \
     FUNC('i', "i", cmd_info, cmdbuf, "get info...") \
     FUNC('g', "g", cmd_get_config, cmdbuf, "get config...") \
     FUNC('s', "s", cmd_set_config, cmdbuf, "set config...") \

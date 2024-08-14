@@ -44,7 +44,10 @@ esp_err_t config_get_i32(const char *key, int32_t *out_value);
 esp_err_t config_get_u32(const char *key, uint32_t *out_value);
 esp_err_t config_get_str(const char *key, char *out_value, size_t *length);
 esp_err_t config_get_blob(const char *key, void *out_value, size_t *length);
+esp_err_t config_get_i32_with_default(const char *key, int32_t *out_value, int32_t default_value);
+esp_err_t config_get_u32_with_default(const char *key, uint32_t *out_value, uint32_t default_value);
 esp_err_t config_get_str_with_default(const char *key, char *out_value, size_t *length, const char *default_value);
+esp_err_t config_get_blob_with_default(const char *key, void *out_value, size_t *length, const void *default_value, size_t default_length);
 
 esp_err_t config_get_item(nvs_iterator_t *iter, config_item_t *item);
 esp_err_t config_entry_find(nvs_type_t type, nvs_iterator_t *output_iterator);
@@ -54,6 +57,8 @@ esp_err_t config_print_item(config_item_t *item);
 //esp_err_t del_config();
 
 extern const char * config_namespace;
+
+#define LOG_CONFIG_VALUE(var) do {ESP_LOGI(TAG, "get config %s = %ld", #var, var);} while (0) 
 
 #endif
 

@@ -464,6 +464,26 @@ esp_err_t config_get_blob(const char* key, void* out_value, size_t *length){
     return nvs_get_blob(config_handle, key, out_value, length);
 }
 
+esp_err_t config_get_i32_with_default(const char *key, int32_t *out_value, int32_t default_value){
+    ESP_RETURN_ON_FALSE(config_initialized, ESP_ERR_INVALID_STATE, TAG, "Nvs Config Uninitialized");
+    esp_err_t ret = nvs_get_i32(config_handle, key, out_value);
+    if (ESP_ERR_NVS_NOT_FOUND == ret) {
+        *out_value = default_value;
+        ret = ESP_OK;
+    }
+    return ret;
+}
+
+esp_err_t config_get_u32_with_default(const char *key, uint32_t *out_value, uint32_t default_value){
+    ESP_RETURN_ON_FALSE(config_initialized, ESP_ERR_INVALID_STATE, TAG, "Nvs Config Uninitialized");
+    esp_err_t ret = nvs_get_u32(config_handle, key, out_value);
+    if (ESP_ERR_NVS_NOT_FOUND == ret) {
+        *out_value = default_value;
+        ret = ESP_OK;
+    }
+    return ret;
+}
+
 esp_err_t config_get_str_with_default(const char* key, char* out_value, size_t *length, const char* default_value){
     esp_err_t ret = ESP_OK;
     ESP_RETURN_ON_FALSE(config_initialized, ESP_ERR_INVALID_STATE, TAG, "Nvs Config Uninitialized");
@@ -477,6 +497,26 @@ esp_err_t config_get_str_with_default(const char* key, char* out_value, size_t *
                 return ESP_ERR_NVS_INVALID_LENGTH;
             if (strlcpy(out_value, default_value, *length) >= *length)
                 return ESP_ERR_NVS_INVALID_LENGTH;
+            ret = ESP_OK;
+        }
+    }
+    return ret;
+}
+
+esp_err_t config_get_blob_with_default(const char* key, void* out_value, size_t *length, const void* default_value, size_t default_length){
+    esp_err_t ret = ESP_OK;
+    ESP_RETURN_ON_FALSE(config_initialized, ESP_ERR_INVALID_STATE, TAG, "Nvs Config Uninitialized");
+    ret = nvs_get_blob(config_handle, key, out_value, length);
+    if (ESP_ERR_NVS_NOT_FOUND == ret) {
+        if (NULL == out_value) {
+            *length = default_length;
+            ret = ESP_OK;
+        } else {
+            if (*length <= 0)
+                return ESP_ERR_NVS_INVALID_LENGTH;
+            if (*length > default_length)
+                *length = default_length;
+            memcpy(out_value, default_value, *length);
             ret = ESP_OK;
         }
     }
