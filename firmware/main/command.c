@@ -8,6 +8,8 @@
 #include "esp_err.h"
 #include "esp_check.h"
 #include "esp_heap_caps.h"
+#include "esp_system.h"
+#include "esp_app_desc.h"
 #include "stdio.h"
 #include "inttypes.h"
 #include "errno.h"
@@ -19,6 +21,7 @@
 #include "motor.h"
 #include "command.h"
 #include "config.h"
+#include "connect.h"
 
 #define STR(x) #x
 #define M_STR(x) STR(x)
@@ -41,6 +44,7 @@
     FUNC('i', "i", cmd_info, cmdbuf, "get info...") \
     FUNC('g', "g", cmd_get_config, cmdbuf, "get config...") \
     FUNC('s', "s", cmd_set_config, cmdbuf, "set config...") \
+    FUNC('a', "a", cmd_advanced, cmdbuf, "advanced commands...") \
     FUNC('q', "q", cmd_quit, &quit, "exit console") \
 
 #define GEN_HELP_STR(c, s, cmd, arg, help) s "\t\t" help "\n"
@@ -49,7 +53,7 @@
 //MessageBufferHandle_t messageBuffer;
 static const char *TAG = "command";
 static const int uart_buffer_size = 1024;
-static const char *greetings = "This is " PROJECT_NAME " commandline interface, version " VERSION ", build date " COMPILE_DATE ".\n"
+static const char *greetings = "This is %s commandline interface, version %s, build date %s %s.\n"
 "\n"
 "Enter ? or h for help:\n";
 
@@ -102,9 +106,10 @@ static void cmd_motor_speed_down(){
 
 static void cmd_info(const char* cmd){
     assert (cmd[0] == 'i');
-    const char* info_helpstr = "usage: i[?gm] print infomation\n"
+    const char* info_helpstr = "usage: i[?gmp] print infomation\n"
         "ig\t\tprint gpio infomation\n"
         "im\t\tprint heap memory usage infomation\n"
+        "ip\t\tprint ip infomation\n"
         ;
     const char* p = cmd+1;
     switch (*p){
@@ -113,6 +118,9 @@ static void cmd_info(const char* cmd){
             break;
         case 'm':
             heap_caps_print_heap_info(MALLOC_CAP_8BIT);
+            break;
+        case 'p':
+            print_ip_info();
             break;
         case '\0':
         case '\n':
@@ -196,17 +204,11 @@ static esp_err_t parse_hex_bytes(const char *buffer, uint8_t *data_ptr, size_t *
         //first nibble
         data = 0;
         if ('0' <= *p && *p <= '9') {
-            if (parse_data){
-                data = (*p)-'0';
-            }
+            if (parse_data) data = (*p)-'0'; 
         } else if ('A' <= *p && *p <= 'Z'){
-            if (parse_data){
-                data = (*p)-'A'+10;
-            }
+            if (parse_data) data = (*p)-'A'+10; 
         } else if ('a' <= *p && *p <= 'z'){
-            if (parse_data){
-                data = (*p)-'a'+10;
-            }
+            if (parse_data) data = (*p)-'a'+10; 
         } else {
             printf("Error: %s: %s %d", TAG, "error parsing blob data at position", p-buffer);
             return ESP_ERR_INVALID_ARG;
@@ -216,17 +218,11 @@ static esp_err_t parse_hex_bytes(const char *buffer, uint8_t *data_ptr, size_t *
         p++;
         data <<= 4;
         if ('0' <= *p && *p <= '9') {
-            if (parse_data){
-                data |= (*p)-'0';
-            }
+            if (parse_data) data |= (*p)-'0'; 
         } else if ('A' <= *p && *p <= 'Z'){
-            if (parse_data){
-                data |= (*p)-'A'+10;
-            }
+            if (parse_data) data |= (*p)-'A'+10; 
         } else if ('a' <= *p && *p <= 'z'){
-            if (parse_data){
-                data |= (*p)-'a'+10;
-            }
+            if (parse_data) data |= (*p)-'a'+10; 
         } else {
             printf("Error: %s: %s %d", TAG, "error parsing blob data at position", p-buffer);
             return ESP_ERR_INVALID_ARG;
@@ -355,6 +351,61 @@ static void cmd_get_config(const char* cmd){
         case '?':
         default:
             printf(get_config_helpstr);
+            break;
+    }
+    if (ESP_OK != ret){
+        printf("Error executing command %s:%s\n", cmd, esp_err_to_name(ret));
+    }
+}
+
+void cmd_advanced(const char* cmd){
+    assert (cmd[0] == 'a');
+    const char *cmd_adv_helpstr = "usage: a[?gs] !DANGEROUS! advanced commands, use if you really know what you are doing\n"
+        "aa               \tget app sha256 checksum\n"
+        "ag <addr>        \tget 32-bit hex data at hex address <addr>\n"
+        "as <addr> <value>\tset 32-bit hex data at hex address <addr>\n"
+        "ar               \treboot device\n"
+        ;
+    const char *p = cmd+1;
+    int cnt = 0;
+    esp_err_t ret = ESP_OK;
+    uint32_t addr = 0, value = 0;
+    switch (*p){
+        case 'a':
+            printf("sha256sum: %s\n", esp_app_get_elf_sha256_str());
+            break;
+        case 'g':
+            cnt = sscanf(p+1, " %"SCNx32, &addr);
+            if (cnt < 1) {
+                ret = ESP_ERR_INVALID_ARG;
+                break;
+            }
+            addr &= 0xFFFFFFFC;
+            value = *((uint32_t *)addr);
+            printf("%"PRIX32" : %"PRIX32"\n", addr, value);
+            break;
+        case 's':
+            cnt = sscanf(p+1, " %"SCNx32" %"SCNx32, &addr, &value);
+            if (cnt < 2) {
+                ret = ESP_ERR_INVALID_ARG;
+                break;
+            }
+            addr &= 0xFFFFFFFC;
+            *((uint32_t *)addr) = value;
+            value = *((uint32_t *)addr);
+            printf("%"PRIX32" : %"PRIX32"\n", addr, value);
+            break;
+        case 'r':
+            ESP_LOGI(TAG, "system restart");
+            printf("system restarting ...\n");
+            fflush(stdout);
+            esp_restart();
+            break;
+        case '\0':
+        case '\n':
+        case '?':
+        default:
+            printf(cmd_adv_helpstr);
             break;
     }
     if (ESP_OK != ret){
@@ -518,7 +569,9 @@ void command_task(void *pvParameters)
 
 start:
     //print greetings message
-    fputs(greetings, stdout);
+    //fputs(greetings, stdout);
+    const esp_app_desc_t * app_desc = esp_app_get_description();
+    printf(greetings, app_desc->project_name, app_desc->version, app_desc->date, app_desc->time);
 
     //command loop
     while (!quit) {

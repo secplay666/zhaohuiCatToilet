@@ -18,6 +18,16 @@ static int s_retry_num = 0;
 #define WIFI_CONNECTED_BIT BIT0
 #define WIFI_FAIL_BIT      BIT1
 
+esp_err_t print_ip_info(){
+    esp_netif_t *netif = esp_netif_get_default_netif();
+    esp_netif_ip_info_t ip_info = {0};
+    ESP_RETURN_ON_ERROR(esp_netif_get_ip_info(netif, &ip_info), TAG, "get ip_info failed");
+    printf("ip     : "IPSTR"\n", IP2STR(&ip_info.ip));
+    printf("netmask: "IPSTR"\n", IP2STR(&ip_info.netmask));
+    printf("gateway: "IPSTR"\n", IP2STR(&ip_info.gw));
+    return ESP_OK;
+}
+
 static void event_handler(void* arg, esp_event_base_t event_base,
                                 int32_t event_id, void* event_data)
 {

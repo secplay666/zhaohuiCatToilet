@@ -23,7 +23,7 @@ void app_main(void)
     ESP_ERROR_CHECK(command_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
 
-    ESP_ERROR_CHECK(TM1638_init());
+    //ESP_ERROR_CHECK(TM1638_init());
     ESP_ERROR_CHECK(DRV8871_init());
 
     xTaskCreate(motor_task, "motor", 4096, NULL, 5, NULL);
