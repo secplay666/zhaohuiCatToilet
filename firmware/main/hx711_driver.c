@@ -162,7 +162,7 @@ void HX711_task(void *pvParameters){
         //wait for notification from ISR if not ready
         if (gpio_get_level(ADDO_GPIO) == 1)
             ulTaskNotifyTakeIndexed(do_notify_index, pdTRUE, portMAX_DELAY);
-        //enable interrupt on DO
+        //disable interrupt on DO
         gpio_intr_disable(ADDO_GPIO);
         //read data from HX711
         HX711_data = HX711_read(CHANNEL_A_x128);

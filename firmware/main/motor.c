@@ -211,7 +211,6 @@ esp_err_t init_sensors(){
     ESP_RETURN_ON_ERROR(gpio_isr_handler_add(BUTTON2, button_isr, (void*)BUTTON_PRESS_2), TAG, "configure GPIO failed for BUTTON2");
     ESP_RETURN_ON_ERROR(gpio_isr_handler_add(BUTTON3, button_isr, (void*)BUTTON_PRESS_3), TAG, "configure GPIO failed for BUTTON3");
 
-
     //enable interrupt
     gpio_intr_enable(BUTTON0);
     gpio_intr_enable(BUTTON1);
@@ -219,10 +218,10 @@ esp_err_t init_sensors(){
     gpio_intr_enable(BUTTON3);
 
     //enable pullup
-    gpio_set_pull_mode(BUTTON0, GPIO_PULLUP_ONLY);
-    gpio_set_pull_mode(BUTTON1, GPIO_PULLUP_ONLY);
-    gpio_set_pull_mode(BUTTON2, GPIO_PULLUP_ONLY);
-    gpio_set_pull_mode(BUTTON3, GPIO_PULLUP_ONLY);
+    ESP_RETURN_ON_ERROR(gpio_set_pull_mode(BUTTON0, GPIO_PULLUP_ONLY), TAG, "enable pullop on pin %d failed", BUTTON0);
+    ESP_RETURN_ON_ERROR(gpio_set_pull_mode(BUTTON1, GPIO_PULLUP_ONLY), TAG, "enable pullop on pin %d failed", BUTTON1);
+    ESP_RETURN_ON_ERROR(gpio_set_pull_mode(BUTTON2, GPIO_PULLUP_ONLY), TAG, "enable pullop on pin %d failed", BUTTON2);
+    ESP_RETURN_ON_ERROR(gpio_set_pull_mode(BUTTON3, GPIO_PULLUP_ONLY), TAG, "enable pullop on pin %d failed", BUTTON3);
 
     //second dump
     gpio_dump_io_configuration(stdout, io_conf.pin_bit_mask);
