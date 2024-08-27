@@ -416,12 +416,12 @@ void cmd_advanced(const char* cmd){
 void cmd_set_config(const char* cmd){
     assert (cmd[0] == 's');
     const char *set_config_helpstr = "usage: s[?lsiuxb] set config\n"
-        "si <key>\tset integer value with key <key>\n"
-        "su <key>\tset unsigned integer value with key <key>\n"
-        "sx <key>\tset hexadecimal value with key <key>\n"
-        "ss <key>\tset string value with key <key>\n"
-        "sb <key>\tset blob value with key <key>\n"
-        "sd <key>\tdelete value with key <key>\n"
+        "si <key> <value>\tset integer value with key <key>\n"
+        "su <key> <value>\tset unsigned integer value with key <key>\n"
+        "sx <key> <value>\tset hexadecimal value with key <key>\n"
+        "ss <key> <value>\tset string value with key <key>\n"
+        "sb <key> <value>\tset blob value with key <key>\n"
+        "sd <key>        \tdelete value with key <key>\n"
         ;
     const char *p = cmd+1, *q = NULL;
     uint8_t *data_ptr = NULL;

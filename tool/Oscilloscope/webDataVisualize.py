@@ -76,7 +76,7 @@ class OscilloscopeApp:
                 if line == "":
                     continue
 
-                # 解析数据格式：XXXXX: FFFFFF
+                # 解析数据格式：(TTTTTT) weight: FFFFFF
                 parts = line.split(':')
                 if len(parts) != 2:
                     continue
@@ -97,8 +97,8 @@ class OscilloscopeApp:
                 #self.update_plot()
 
             except Exception as e:
-                print(f"Error reading serial data: {str(e)}")
-                continue
+                print(f"Error reading socket data: {str(e)}")
+                break
         self.input.close()
 
 if __name__ == "__main__":
