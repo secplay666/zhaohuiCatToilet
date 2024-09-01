@@ -66,13 +66,13 @@ void cleanup_socket(command_parameter * para){
         ESP_LOGE(TAG, "shutdown: %s", strerror(errno));
     }
     //clearing read buffer
-    while (EOF != fgetc(para->stream_in));
-    if (feof(para->stream_in)){
-        ESP_LOGE(TAG, "fgetc: %s", strerror(errno));
-    }
+    //while (EOF != fgetc(para->stream_in));
+    //if (ferror(para->stream_in)){
+    //    ESP_LOGE(TAG, "fgetc: %s", strerror(errno));
+    //}
     //closing socket stream & fd
     if (para->stream_in != para->stream_out) {
-        fclose(para->stream_in);
+        fclose(para->stream_in); //close duplicated fd first
         fclose(para->stream_out);
     } else {
         fclose(para->stream_in);

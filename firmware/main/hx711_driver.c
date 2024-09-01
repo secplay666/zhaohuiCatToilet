@@ -115,12 +115,14 @@ long HX711_read(int next_sense){
 
     count = 0;
     //shift in data while setting transformation mode for next data
+    taskDISABLE_INTERRUPTS();
     for (i = 0; i < 24+next_sense; i++) {
         gpio_set_level(ADSK_GPIO, 1);
         count = count << 1; 
         gpio_set_level(ADSK_GPIO, 0); 
         count |= gpio_get_level(ADDO_GPIO) & 0x1;
     }
+    taskENABLE_INTERRUPTS();
 
     //check input data at last 1~3 clocks
     if (~count & ((0x1<<next_sense) - 1)) {
@@ -162,7 +164,7 @@ void HX711_task(void *pvParameters){
         //wait for notification from ISR if not ready
         if (gpio_get_level(ADDO_GPIO) == 1)
             ulTaskNotifyTakeIndexed(do_notify_index, pdTRUE, portMAX_DELAY);
-        //enable interrupt on DO
+        //disable interrupt on DO
         gpio_intr_disable(ADDO_GPIO);
         //read data from HX711
         HX711_data = HX711_read(CHANNEL_A_x128);
