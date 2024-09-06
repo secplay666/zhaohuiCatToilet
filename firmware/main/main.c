@@ -18,6 +18,17 @@ static const char *TAG = "main";
 
 void app_main(void)
 {
+    /* Initialize NVS partition */
+    esp_err_t ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        /* NVS partition was truncated
+         * and needs to be erased */
+        ESP_ERROR_CHECK(nvs_flash_erase());
+
+        /* Retry nvs_flash_init */
+        ESP_ERROR_CHECK(nvs_flash_init());
+    }
+
     ESP_ERROR_CHECK(config_init());
 
     ESP_ERROR_CHECK(command_init());
@@ -26,17 +37,17 @@ void app_main(void)
     //ESP_ERROR_CHECK(TM1638_init());
     ESP_ERROR_CHECK(DRV8871_init());
 
+    // start ip layer
+    ESP_ERROR_CHECK(esp_netif_init());
+    
+    // start wifi connection (we use wifi provisioning instead)
+    ESP_ERROR_CHECK(wifi_connect());
+
     xTaskCreate(motor_task, "motor", 4096, NULL, 5, NULL);
     xTaskCreate(HX711_task, "weight", 4096, NULL, 5, NULL);
 
     // start UART console
     xTaskCreate(command_task, "command", 4096, NULL, 5, NULL);
-
-    // start ip layer
-    ESP_ERROR_CHECK(esp_netif_init());
-
-    // start wifi connection
-    ESP_ERROR_CHECK(wifi_connect());
 
 #ifdef CONFIG_IPV4
     xTaskCreate(tcp_server_task, "tcp_server", 4096, (void*)AF_INET, 5, NULL);

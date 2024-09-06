@@ -1,2 +1,3 @@
 dependencies:
   bdc_motor: "^0.1.0"
+  qrcode: "^0.1.0"

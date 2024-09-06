@@ -78,7 +78,34 @@ menu "Network Configuration"
         help
             Set the Maximum retry to avoid station reconnecting to the AP unlimited when the AP is really inexistent.
 
-endmenu
+    config PROVISION_TRANSPORT_BLE
+        bool "Use BLE wifi provisioning"
+        default y
+        help 
+            Use BLE as method of wifi provisioning.
+    config RESET_PROVISIONED
+        bool "Reset previous provisioning(for debug)."
+        default n
+        help 
+            Reset previous provisioning(for debug).
+    
+    config BLE_REPROVISIONING
+        bool "reprovision if provisioning is failed."
+        default y 
+        help 
+            Reprovision if timeout or failure occured.
+    
+    config PROV_SHOW_QR
+        bool "Show QR Code when provisioning"
+        default y
+    
+    config RESET_PROV_MGR_ON_FAILURE
+        bool "Reset provisioning manager on failure"
+        default y
+    config PROV_MGR_MAX_RETRY_CNT
+        int "Max retry number of provisioning manager"
+        default 5
+    endmenu
 
 menu "GPIO pin Configuration"
 

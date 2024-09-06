@@ -1,0 +1,6 @@
+{
+    "idf.adapterTargetName": "esp32",
+    "idf.port": "/dev/tty.usbserial-539E0032381",
+    "idf.flashType": "UART",
+    "idf.monitorBaudRate": "115200"
+}

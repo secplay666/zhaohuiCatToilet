@@ -29,6 +29,8 @@
 #define VERSION COMPOSE_VERSION(CONFIG_PROJECT_VERSION_MAJOR, CONFIG_PROJECT_VERSION_MINOR, CONFIG_PROJECT_VERSION_PATCH)
 #define PROJECT_NAME CONFIG_PROJECT_NAME
 #define COMPILE_DATE __DATE__
+#define LOG_COLOR_YELLOW LOG_COLOR_GREEN
+
 
 #define CMD_LIST_GEN(FUNC) \
     FUNC('h', "h", print_help, , "print this help") \
@@ -131,6 +133,26 @@ static void cmd_info(const char* cmd){
     }
 }
 
+static void cmd_wifi_prov(const char* cmd){
+    assert (cmd[0] == 'w');
+    // const char* wifi_helpstr = "usage: w[?p] wifi provisioning\n"
+    //     "wp\t\twifi provisioning\n";
+    const char* wifi_helpstr = "Unimplemented Operation.";
+    const char* p = cmd + 1;
+    switch (*p) {
+        case 'p':
+            //wifi_provisioning();
+            //break;
+        case '\0':
+        case '\n':
+        case '?':
+        default:
+            printf(wifi_helpstr);
+            break;
+    }
+    
+}
+
 static void cmd_motor_ctrl(const char* cmd){
     assert (cmd[0] == 'm');
     const char* motor_helpstr = "usage: m[?frbc+-] motor control\n"
@@ -173,6 +195,8 @@ static void cmd_motor_ctrl(const char* cmd){
             break;
     }
 }
+
+
 
 static esp_err_t parse_key(const char* cmd, char* key, size_t len, const char **out_ptr){
     const char *p = cmd;
